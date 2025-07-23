@@ -90,7 +90,7 @@ exports.storeShapeFile = async (req, res) => {
     const filePath = path.join(__dirname, "..", "public", relativePath);
 
     // 2. Simpan relasi ke tabel
-    const workspace = await trx("workspace_layers")
+    const workspace = await knex("workspace_layers")
       .select("workspace_id")
       .where("id", workspace_layer_id)
       .first();
