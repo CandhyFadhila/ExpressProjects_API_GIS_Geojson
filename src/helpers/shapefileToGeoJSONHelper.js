@@ -42,10 +42,13 @@ function convertShapefileRowsToGeoJSON(rows, geometryColumn = "geom") {
     });
   }
 
+  const bbox = [minX, minY, maxX, maxY];
+  const center = calculateCenterFromBBox(bbox);
+
   return {
     type: "FeatureCollection",
-    bbox: [minX, minY, maxX, maxY],
-    features,
+    bbox,
+    center,
   };
 }
 
@@ -65,6 +68,22 @@ function extractAllCoordinates(geometry) {
   }
 
   return coords;
+}
+
+function calculateCenterFromBBox(bbox) {
+  if (
+    !Array.isArray(bbox) ||
+    bbox.length !== 4 ||
+    bbox.some((val) => typeof val !== "number")
+  ) {
+    throw new Error("BBOX tidak valid. Format harus [minX, minY, maxX, maxY]");
+  }
+
+  const [minX, minY, maxX, maxY] = bbox;
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  return [centerX, centerY];
 }
 
 module.exports = {
