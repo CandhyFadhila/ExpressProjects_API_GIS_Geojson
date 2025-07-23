@@ -8,32 +8,63 @@ function convertShapefileRowsToGeoJSON(rows, geometryColumn = "geom") {
     };
   }
 
-  const features = rows.map((row) => {
-    // Clone data agar tidak merusak objek asli
+  const features = [];
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+
+  for (const row of rows) {
     const rowData = { ...row };
     const geomHex = rowData[geometryColumn];
-
-    // Buang kolom geom dari properties
     delete rowData[geometryColumn];
 
-    let geometry;
+    let geometry = null;
     try {
       geometry = wkx.Geometry.parse(Buffer.from(geomHex, "hex")).toGeoJSON();
+
+      // Hitung bounding box geometry ini
+      const coords = extractAllCoordinates(geometry);
+      for (const [x, y] of coords) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
     } catch (error) {
       geometry = null;
     }
 
-    return {
+    features.push({
       type: "Feature",
       geometry,
       properties: rowData,
-    };
-  });
+    });
+  }
 
   return {
     type: "FeatureCollection",
+    bbox: [minX, minY, maxX, maxY],
     features,
   };
+}
+
+function extractAllCoordinates(geometry) {
+  const coords = [];
+
+  function extract(coordsArray) {
+    if (typeof coordsArray[0] === "number") {
+      coords.push(coordsArray);
+    } else {
+      coordsArray.forEach(extract);
+    }
+  }
+
+  if (geometry && geometry.coordinates) {
+    extract(geometry.coordinates);
+  }
+
+  return coords;
 }
 
 module.exports = {
