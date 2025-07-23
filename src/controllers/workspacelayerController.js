@@ -18,7 +18,6 @@ const {
 } = require("../helpers/shapefileToGeoJSONHelper");
 
 exports.storeShapeFile = async (req, res) => {
-  const trx = await knex.transaction();
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -26,87 +25,88 @@ exports.storeShapeFile = async (req, res) => {
         .array()
         .map((err) => err.msg)
         .join(" ");
-      await trx.rollback();
-      const response = new WithoutDataResource(
-        400,
-        "FAILED_VALIDATION",
-        "Format Data Tidak Sesuai Ketentuan",
-        message
-      );
-      return res.status(400).json(response.toResponse());
+      return res
+        .status(400)
+        .json(
+          new WithoutDataResource(
+            400,
+            "FAILED_VALIDATION",
+            "Format Data Tidak Sesuai Ketentuan",
+            message
+          ).toResponse()
+        );
     }
 
     const { workspace_layer_id } = req.body;
 
     if (!req.files || req.files.length === 0) {
-      await trx.rollback();
-      const response = new WithoutDataResource(
-        400,
-        "FILES_NOT_FOUND",
-        "Dokumen Tidak Ditemukan",
-        "Dokumen shapefile wajib diunggah."
-      );
-      return res.status(400).json(response.toResponse());
+      return res
+        .status(400)
+        .json(
+          new WithoutDataResource(
+            400,
+            "FILES_NOT_FOUND",
+            "Dokumen Tidak Ditemukan",
+            "Dokumen shapefile wajib diunggah."
+          ).toResponse()
+        );
     }
 
     if (req.files.length > 1) {
-      await trx.rollback();
-      const response = new WithoutDataResource(
-        400,
-        "MAX_FILES",
-        "Terlalu Banyak Dokumen",
-        "Maksimal upload adalah 1 file."
-      );
-      return res.status(400).json(response.toResponse());
+      return res
+        .status(400)
+        .json(
+          new WithoutDataResource(
+            400,
+            "MAX_FILES",
+            "Terlalu Banyak Dokumen",
+            "Maksimal upload adalah 1 file."
+          ).toResponse()
+        );
     }
 
     for (const file of req.files) {
-      // const allowedTypes = ["application/zip"];
-      // if (!allowedTypes.includes(file.mimetype)) {
-      //   const response = new WithoutDataResource(
-      //     400,
-      //     "INVALID_FILE_TYPE",
-      //     "Tipe Dokumen Salah",
-      //     "File dokumen hanya boleh ZIP (shapefile)."
-      //   );
-      //   return res.status(400).json(response.toResponse());
-      // }
       if (file.size > 10 * 1024 * 1024) {
-        await trx.rollback();
-        const response = new WithoutDataResource(
-          400,
-          "FILE_TOO_LARGE",
-          "Ukuran Dokumen Terlalu Besar",
-          "Ukuran maksimal tiap file adalah 10MB."
-        );
-        return res.status(400).json(response.toResponse());
+        return res
+          .status(400)
+          .json(
+            new WithoutDataResource(
+              400,
+              "FILE_TOO_LARGE",
+              "Ukuran Dokumen Terlalu Besar",
+              "Ukuran maksimal tiap file adalah 10MB."
+            ).toResponse()
+          );
       }
     }
 
-    // 1. Upload ZIP dokumen ke storage
+    // Upload dokumen
     const uploadedDocuments = await uploadDocuments(req.files);
     const documentId = uploadedDocuments[0]?.id;
     const relativePath = uploadedDocuments[0]?.file_path;
     const filePath = path.join(__dirname, "..", "public", relativePath);
 
-    // 2. Simpan relasi ke tabel
+    // Cek workspace_layer_id
     const workspace = await knex("workspace_layers")
       .select("workspace_id")
       .where("id", workspace_layer_id)
       .first();
+
     if (!workspace) {
-      await trx.rollback();
-      logger.info(`| workspace_layer_id | = ${workspace_layer_id}`);
-      const response = new WithoutDataResource(
-        400,
-        "INVALID_WORKSPACE_LAYER_ID",
-        "ID Layer Tidak Valid",
-        "workspace_layer_id tidak ditemukan di database."
-      );
-      return res.status(400).json(response.toResponse());
+      return res
+        .status(400)
+        .json(
+          new WithoutDataResource(
+            400,
+            "INVALID_WORKSPACE_LAYER_ID",
+            "ID Layer Tidak Valid",
+            "workspace_layer_id tidak ditemukan di database."
+          ).toResponse()
+        );
     }
 
-    await trx("workspace_layer_shapefiles").insert({
+    // Simpan ke workspace_layer_shapefiles
+    await knex("workspace_layer_shapefiles").insert({
       workspace_layer_id,
       document_id: documentId,
     });
@@ -114,31 +114,33 @@ exports.storeShapeFile = async (req, res) => {
     const workspace_id = workspace.workspace_id;
     const tableName = `shp_workspace_${workspace_id}_layer_${workspace_layer_id}`;
 
-    // 3. Ekstrak, konversi shapefile ke PostgreSQL lalu publish ke GeoServer
+    // Ekstrak & konversi shapefile
     await handleShapefileUpload(filePath, tableName);
-    // await publishPostGISLayer(tableName);
 
-    await trx.commit();
-
-    const response = new WithoutDataResource(
-      201,
-      "SUCCESS_CREATE_DATA",
-      "Berhasil Menyimpan Data",
-      `Dokumen shapefile berhasil diunggah, diekstrak, dan dikonversi ke database.`
-    );
-    return res.status(201).json(response.toResponse());
+    return res
+      .status(201)
+      .json(
+        new WithoutDataResource(
+          201,
+          "SUCCESS_CREATE_DATA",
+          "Berhasil Menyimpan Data",
+          "Dokumen shapefile berhasil diunggah, diekstrak, dan dikonversi ke database."
+        ).toResponse()
+      );
   } catch (error) {
-    await trx.rollback();
     logger.error(
       `| Workspace Layer | - Error function store: ${error.message}`
     );
-    const response = new WithoutDataResource(
-      500,
-      "SERVER_ERROR",
-      "Server Sedang Error",
-      "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
-    );
-    res.status(500).json(response.toResponse());
+    return res
+      .status(500)
+      .json(
+        new WithoutDataResource(
+          500,
+          "SERVER_ERROR",
+          "Server Sedang Error",
+          "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
+        ).toResponse()
+      );
   }
 };
 
