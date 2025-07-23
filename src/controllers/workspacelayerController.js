@@ -90,19 +90,25 @@ exports.storeShapeFile = async (req, res) => {
     const filePath = path.join(__dirname, "..", "public", relativePath);
 
     // 2. Simpan relasi ke tabel
-    await trx("workspace_layer_shapefiles").insert({
-      workspace_layer_id,
-      document_id: documentId,
-    });
-
     const workspace = await trx("workspace_layers")
       .select("workspace_id")
       .where("id", workspace_layer_id)
       .first();
-
     if (!workspace) {
-      throw new Error("workspace_layer_id tidak ditemukan di database.");
+      await trx.rollback(); // rollback sebelum return
+      const response = new WithoutDataResource(
+        400,
+        "INVALID_WORKSPACE_LAYER_ID",
+        "ID Layer Tidak Valid",
+        "workspace_layer_id tidak ditemukan di database."
+      );
+      return res.status(400).json(response.toResponse());
     }
+
+    await trx("workspace_layer_shapefiles").insert({
+      workspace_layer_id,
+      document_id: documentId,
+    });
 
     const workspace_id = workspace.workspace_id;
     const tableName = `shp_workspace_${workspace_id}_layer_${workspace_layer_id}`;
