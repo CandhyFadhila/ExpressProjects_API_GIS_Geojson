@@ -26,6 +26,7 @@ exports.storeShapeFile = async (req, res) => {
         .array()
         .map((err) => err.msg)
         .join(" ");
+      await trx.rollback();
       const response = new WithoutDataResource(
         400,
         "FAILED_VALIDATION",
@@ -38,6 +39,7 @@ exports.storeShapeFile = async (req, res) => {
     const { workspace_layer_id } = req.body;
 
     if (!req.files || req.files.length === 0) {
+      await trx.rollback();
       const response = new WithoutDataResource(
         400,
         "FILES_NOT_FOUND",
@@ -48,6 +50,7 @@ exports.storeShapeFile = async (req, res) => {
     }
 
     if (req.files.length > 1) {
+      await trx.rollback();
       const response = new WithoutDataResource(
         400,
         "MAX_FILES",
@@ -69,6 +72,7 @@ exports.storeShapeFile = async (req, res) => {
       //   return res.status(400).json(response.toResponse());
       // }
       if (file.size > 10 * 1024 * 1024) {
+        await trx.rollback();
         const response = new WithoutDataResource(
           400,
           "FILE_TOO_LARGE",
@@ -86,12 +90,12 @@ exports.storeShapeFile = async (req, res) => {
     const filePath = path.join(__dirname, "..", "public", relativePath);
 
     // 2. Simpan relasi ke tabel
-    await knex("workspace_layer_shapefiles").insert({
+    await trx("workspace_layer_shapefiles").insert({
       workspace_layer_id,
       document_id: documentId,
     });
 
-    const workspace = await knex("workspace_layers")
+    const workspace = await trx("workspace_layers")
       .select("workspace_id")
       .where("id", workspace_layer_id)
       .first();
@@ -265,7 +269,7 @@ exports.getSingleShapefileFeature = async (req, res) => {
       "SUCCESS_GET_DATA",
       "Berhasil Mengambil Data",
       `Berhasil mengambil data dengan ID ${feature_id} dari tabel ${tableName}`,
-      feature,
+      feature
     );
     return res.status(200).json(response.toResponse());
   } catch (error) {
