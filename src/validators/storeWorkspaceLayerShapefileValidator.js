@@ -1,10 +1,10 @@
 const { body } = require("express-validator");
 
 exports.storeWorkspaceLayerShapefileValidator = [
-  body("workspace_layer_id")
+  body("workspace_id")
     .notEmpty()
-    .withMessage("ID layer workspace tidak boleh kosong.")
+    .withMessage("ID workspace tidak boleh kosong.")
     .bail()
     .isInt({ gt: 0 })
-    .withMessage("ID layer workspace harus berupa angka bulat positif."),
+    .withMessage("ID workspace harus berupa angka bulat positif."),
 ];
