@@ -7,7 +7,8 @@ async function convertShapefileToPostgres(
   schemaName = "public"
 ) {
   // Gunakan path lengkap ke ogr2ogr.exe
-  const ogrPath = `"C:\\Program Files\\QGIS 3.44.0\\bin\\ogr2ogr.exe"`; // <- sesuaikan dengan hasil where ogr2ogr
+  // const ogrPath = `"C:\\Program Files\\QGIS 3.44.0\\bin\\ogr2ogr.exe"`; // <- windows
+  const ogrPath = "ogr2ogr"; // <- linux
 
   const ogrCmd = `${ogrPath} -f "PostgreSQL" PG:"host=localhost user=postgres dbname=gis_bpn password=super.admin port=5433" "${shpFilePath}" -nln ${schemaName}.${tableName} -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -lco FID=id -overwrite -t_srs EPSG:4326`;
 
