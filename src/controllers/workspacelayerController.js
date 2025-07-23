@@ -10,6 +10,11 @@ const {
 } = require("../helpers/convertShapefileToPostgres");
 const { publishPostGISLayer } = require("../helpers/geoServerHelper");
 
+// new khusus shp
+const {
+  convertShapefileRowsToGeoJSON,
+} = require("../helpers/shapefileToGeoJSONHelper");
+
 exports.storeShapeFile = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -154,13 +159,14 @@ exports.getAllShapeFilesByWorkspaceId = async (req, res) => {
       }
 
       const shpData = await knex(tableName).select("*");
+      const geojson = convertShapefileRowsToGeoJSON(shpData);
 
       results.push({
         layer_id: layer.id,
         layer_name: layer.layer_name,
         description: layer.description,
         table_name: tableName,
-        data: shpData,
+        data: geojson,
       });
     }
 
@@ -194,6 +200,8 @@ exports.getAllShapeFilesByWorkspaceId = async (req, res) => {
     return res.status(500).json(response.toResponse());
   }
 };
+
+
 
 async function handleShapefileUpload(zipPath, tableName) {
   const { fileList } = await extractZipShapefile(zipPath);
