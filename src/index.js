@@ -5,6 +5,7 @@ const morgan = require("morgan");
 const knex = require("./config/database");
 const authRoutes = require("./routes/authRoutes");
 const wmsRoutes = require("./routes/wmsRoutes");
+const logger = require("./utils/logger");
 const path = require("path");
 const documentRoutes = require("./routes/documentRoutes");
 const workspaceRoutes = require("./routes/workspaceRoutes");

@@ -24,4 +24,18 @@ router.get(
   workspaceLayerController.getAllShapeFilesByWorkspaceId
 );
 
+router.get(
+  "/shape-files/:workspace_id/layers/:workspace_layer_id/feature/:feature_id",
+  rateLimiter,
+  authMiddleware,
+  workspaceLayerController.getSingleShapefileFeature
+);
+
+router.put(
+  "/shape-files/update",
+  rateLimiter,
+  authMiddleware,
+  workspaceLayerController.updateShapefileData
+);
+
 module.exports = router;
