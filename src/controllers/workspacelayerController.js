@@ -388,6 +388,7 @@ exports.getAllShapeFilesByWorkspaceId = async (req, res) => {
       const geojson = convertShapefileRowsToGeoJSON(shpData);
 
       results.push({
+        workspace_id: Number(workspace_id),
         layer_id: layer.id,
         layer_name: layer.layer_name,
         description: layer.description,
