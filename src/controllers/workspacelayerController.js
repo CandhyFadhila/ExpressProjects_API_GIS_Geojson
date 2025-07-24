@@ -512,7 +512,12 @@ exports.getSingleShapefileFeature = async (req, res) => {
 exports.updateShapefileData = async (req, res) => {
   const { table_name, layer_id, properties } = req.body;
 
-  if (!table_name || !layer_id || !properties || !properties.id) {
+  let parsedProperties = properties;
+  if (typeof properties === "string") {
+    parsedProperties = JSON.parse(properties);
+  }
+
+  if (!table_name || !layer_id || !parsedProperties) {
     return res
       .status(400)
       .json(
@@ -545,7 +550,7 @@ exports.updateShapefileData = async (req, res) => {
         );
     }
 
-    const { id, ...updateFields } = properties;
+    const { id, ...updateFields } = parsedProperties;
 
     const updated = await trx(table_name).where("id", id).update(updateFields);
 
