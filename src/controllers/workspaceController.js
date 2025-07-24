@@ -349,14 +349,11 @@ exports.update = async (req, res) => {
 };
 
 exports.destroy = async (req, res) => {
-  try {
-    const id = req.params.id;
+  const id = req.params.id;
+  const trx = await knex.transaction();
 
-    // Cek apakah data ada
-    const existing = await knex("workspaces")
-      .where("id", id)
-      .whereNull("deleted_at")
-      .first();
+  try {
+    const existing = await trx("workspaces").where("id", id).first();
     if (!existing) {
       const response = new WithoutDataResource(
         200,
@@ -367,19 +364,74 @@ exports.destroy = async (req, res) => {
       return res.status(200).json(response.toResponse());
     }
 
-    // Soft delete
-    await knex("workspaces").where("id", id).update({
-      deleted_at: knex.fn.now(),
-    });
+    // Ambil semua layer dari workspace
+    const layers = await trx("workspace_layers").where("workspace_id", id);
+
+    // Loop setiap layer
+    for (const layer of layers) {
+      const layerId = layer.id;
+
+      // Ambil document_id dari workspace_layer_shapefiles dan workspace_layer_geojson
+      const shapefileDocumentIds = await trx("workspace_layer_shapefiles")
+        .select("document_id")
+        .where("workspace_layer_id", layerId)
+        .pluck("document_id");
+
+      const geojsonDocumentIds = await trx("workspace_layer_geojsons")
+        .select("document_id")
+        .where("workspace_layer_id", layerId)
+        .pluck("document_id");
+
+      // Gabungkan documentIds dari workspace_layer_shapefiles dan workspace_layer_geojson
+      const allDocumentIds = [...shapefileDocumentIds, ...geojsonDocumentIds];
+
+      // Hapus dokumen yang terkait
+      if (allDocumentIds.length > 0) {
+        await deleteDocuments(allDocumentIds); // Panggil helper untuk menghapus dokumen
+      }
+
+      // Hapus data dari relasi shapefiles & geojson
+      await trx("workspace_layer_shapefiles")
+        .where("workspace_layer_id", layerId)
+        .del()
+        .catch(() => {}); // jika tidak ada tabel, abaikan
+
+      await trx("workspace_layer_geojsons")
+        .where("workspace_layer_id", layerId)
+        .del()
+        .catch(() => {});
+
+      // Hapus tabel shapefile dinamis jika ada
+      const tableName = `shp_workspace_${id}_layer_${layerId}`;
+      const tableExists = await trx.schema.hasTable(tableName);
+      if (tableExists) {
+        await trx.schema.dropTableIfExists(tableName);
+      }
+    }
+
+    // Hapus semua workspace_layers
+    await trx("workspace_layers").where("workspace_id", id).del();
+
+    // Ambil document_id dari thumbnail workspace untuk dihapus
+    const thumbnailDocumentId = existing.thumbnail;
+    if (thumbnailDocumentId) {
+      await deleteDocuments([thumbnailDocumentId]);
+    }
+
+    // Hapus workspace
+    await trx("workspaces").where("id", id).del();
+
+    await trx.commit();
 
     const response = new WithoutDataResource(
       200,
       "SUCCESS_DELETE_DATA",
       "Berhasil Menghapus Data",
-      `Data workspace '${existing.title}' berhasil dihapus.`
+      `Workspace dan seluruh data yang terkait berhasil dihapus.`
     );
     return res.status(200).json(response.toResponse());
   } catch (error) {
+    await trx.rollback();
     logger.error(`| Workspace | - Error function destroy : ${error.message}`);
     const response = new WithoutDataResource(
       500,

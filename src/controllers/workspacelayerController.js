@@ -193,7 +193,7 @@ exports.storeShapeFile = async (req, res) => {
     }
 
     for (const file of req.files) {
-      if (file.size > 10 * 1024 * 1024) {
+      if (file.size > 20 * 1024 * 1024) {
         return res
           .status(400)
           .json(
@@ -201,7 +201,7 @@ exports.storeShapeFile = async (req, res) => {
               400,
               "FILE_TOO_LARGE",
               "Ukuran Dokumen Terlalu Besar",
-              "Ukuran maksimal tiap file adalah 10MB."
+              "Ukuran maksimal tiap file adalah 20MB."
             ).toResponse()
           );
       }
@@ -289,39 +289,44 @@ exports.storeShapeFile = async (req, res) => {
 };
 
 exports.getAllUniquePenggunaan = async (req, res) => {
-  const { workspace_id } = req.params;
-
   try {
-    const layers = await knex("workspace_layers")
-      .select("id")
-      .where("workspace_id", workspace_id)
+    const workspaces = await knex("workspaces")
+      .select("id", "title")
       .whereNull("deleted_at");
-
-    if (!layers || layers.length === 0) {
+    if (!workspaces || workspaces.length === 0) {
       return res
-        .status(404)
+        .status(200)
         .json(
           new WithoutDataResource(
-            404,
+            200,
             "DATA_NOT_FOUND",
             "Data Tidak Ditemukan",
-            `Tidak ada layer pada workspace ID ${workspace_id}`
+            "Tidak ada workspace yang tersedia"
           ).toResponse()
         );
     }
 
     const semuaFitur = [];
 
-    for (const layer of layers) {
-      const tableName = `shp_workspace_${workspace_id}_layer_${layer.id}`;
+    for (const workspace of workspaces) {
+      const layers = await knex("workspace_layers")
+        .select("id", "workspace_id", "layer_name", "description")
+        .where("workspace_id", workspace.id)
+        .whereNull("deleted_at");
 
-      const tableExists = await knex.schema.hasTable(tableName);
-      if (!tableExists) continue;
+      // Loop setiap layer untuk mendapatkan shapefile dan geojson
+      for (const layer of layers) {
+        const tableName = `shp_workspace_${workspace.id}_layer_${layer.id}`;
 
-      const rows = await knex(tableName).select("*");
-      const geojson = convertShapefileRowsToGeoJSON(rows);
+        const tableExists = await knex.schema.hasTable(tableName);
+        if (!tableExists) continue;
 
-      semuaFitur.push(...geojson.features);
+        const rows = await knex(tableName).select("*");
+        const geojson = convertShapefileRowsToGeoJSON(rows);
+
+        // Push fitur ke semuaFitur
+        semuaFitur.push(...geojson.features);
+      }
     }
 
     const uniquePenggunaan = await getUniquePenggunaanFromGeoJSON(semuaFitur);
@@ -330,7 +335,7 @@ exports.getAllUniquePenggunaan = async (req, res) => {
       200,
       "SUCCESS_GET_DATA",
       "Berhasil Mendapatkan Data",
-      "Berhasil mendapatkan data penggunaan",
+      "Berhasil mendapatkan semua data penggunaan",
       uniquePenggunaan
     );
     return res.status(200).json(response.toResponse());

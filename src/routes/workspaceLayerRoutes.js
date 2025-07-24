@@ -27,10 +27,10 @@ router.get(
 );
 
 router.get(
-  "/shape-files/:workspace_id/layers/:workspace_layer_id/feature/:feature_id",
-  rateLimiter,
+  "/shape-files/penggunaan",
+  // rateLimiter,
   authMiddleware,
-  workspaceLayerController.getSingleShapefileFeature
+  workspaceLayerController.getAllUniquePenggunaan
 );
 
 router.get(
