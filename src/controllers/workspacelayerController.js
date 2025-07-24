@@ -288,6 +288,69 @@ exports.storeShapeFile = async (req, res) => {
   }
 };
 
+exports.getAllUniquePenggunaan = async (req, res) => {
+  const { workspace_id } = req.params;
+
+  try {
+    const layers = await knex("workspace_layers")
+      .select("id")
+      .where("workspace_id", workspace_id)
+      .whereNull("deleted_at");
+
+    if (!layers || layers.length === 0) {
+      return res
+        .status(404)
+        .json(
+          new WithoutDataResource(
+            404,
+            "DATA_NOT_FOUND",
+            "Data Tidak Ditemukan",
+            `Tidak ada layer pada workspace ID ${workspace_id}`
+          ).toResponse()
+        );
+    }
+
+    const semuaFitur = [];
+
+    for (const layer of layers) {
+      const tableName = `shp_workspace_${workspace_id}_layer_${layer.id}`;
+
+      const tableExists = await knex.schema.hasTable(tableName);
+      if (!tableExists) continue;
+
+      const rows = await knex(tableName).select("*");
+      const geojson = convertShapefileRowsToGeoJSON(rows);
+
+      semuaFitur.push(...geojson.features);
+    }
+
+    const uniquePenggunaan = await getUniquePenggunaanFromGeoJSON(semuaFitur);
+
+    const response = new WithDataResource(
+      200,
+      "SUCCESS_GET_DATA",
+      "Berhasil Mendapatkan Data",
+      "Berhasil mendapatkan data penggunaan",
+      uniquePenggunaan
+    );
+    return res.status(200).json(response.toResponse());
+  } catch (error) {
+    logger.error(
+      `| Workspace | - Error getAllUniquePenggunaan: ${error.message}`
+    );
+    return res
+      .status(500)
+      .json(
+        new WithoutDataResource(
+          500,
+          "SERVER_ERROR",
+          "Server Sedang Error",
+          "Gagal mengambil data penggunaan"
+        ).toResponse()
+      );
+  }
+};
+
 exports.getAllShapeFilesByWorkspaceId = async (req, res) => {
   const { workspace_id } = req.params;
 
@@ -323,16 +386,13 @@ exports.getAllShapeFilesByWorkspaceId = async (req, res) => {
 
       const shpData = await knex(tableName).select("*");
       const geojson = convertShapefileRowsToGeoJSON(shpData);
-      const { data: features } = geojson;
-      const uniquePenggunaan = await getUniquePenggunaanFromGeoJSON(features);
 
       results.push({
         layer_id: layer.id,
         layer_name: layer.layer_name,
         description: layer.description,
         table_name: tableName,
-        penggunaan: uniquePenggunaan,
-        data: geojson,
+        geojson: geojson,
       });
     }
 

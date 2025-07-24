@@ -21,7 +21,16 @@ router.patch(
 
 router.get(
   "/shape-files/:workspace_id",
+  // rateLimiter,
+  authMiddleware,
   workspaceLayerController.getAllShapeFilesByWorkspaceId
+);
+
+router.get(
+  "/shape-files/:workspace_id/layers/:workspace_layer_id/feature/:feature_id",
+  rateLimiter,
+  authMiddleware,
+  workspaceLayerController.getSingleShapefileFeature
 );
 
 router.get(
