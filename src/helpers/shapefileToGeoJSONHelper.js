@@ -49,7 +49,7 @@ function convertShapefileRowsToGeoJSON(rows, geometryColumn = "geom") {
     type: "FeatureCollection",
     bbox,
     center,
-    features,
+    data: features,
   };
 }
 
