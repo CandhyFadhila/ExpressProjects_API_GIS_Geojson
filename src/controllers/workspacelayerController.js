@@ -512,7 +512,7 @@ exports.getSingleShapefileFeature = async (req, res) => {
 exports.updateShapefileData = async (req, res) => {
   const { table_name, layer_id, properties } = req.body;
 
-  if (!table_name || !layer_id || !properties) {
+  if (!table_name || !layer_id || !properties || !properties.id) {
     return res
       .status(400)
       .json(
@@ -520,7 +520,7 @@ exports.updateShapefileData = async (req, res) => {
           400,
           "INVALID_PAYLOAD",
           "Payload tidak valid",
-          "Field 'layer_id', 'table_name', dan 'properties' tidak boleh kosong."
+          "Field 'layer_id', 'table_name', dan 'properties.id' tidak boleh kosong."
         ).toResponse()
       );
   }
