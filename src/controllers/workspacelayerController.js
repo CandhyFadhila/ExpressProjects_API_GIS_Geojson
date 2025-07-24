@@ -28,58 +28,56 @@ exports.storeShapeFile = async (req, res) => {
         .array()
         .map((err) => err.msg)
         .join(" ");
-      return res
-        .status(400)
-        .json(
-          new WithoutDataResource(
-            400,
-            "FAILED_VALIDATION",
-            "Format Data Tidak Sesuai Ketentuan",
-            message
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        400, // HTTP Status Code: Bad Request
+        "VALIDATION_FAILED",
+        "Format Data Tidak Sesuai Ketentuan",
+        message
+      );
+      return res.status(400).json(response.toResponse());
     }
 
     const { workspace_id } = req.body;
 
     if (!req.files || req.files.length === 0) {
-      return res
-        .status(400)
-        .json(
-          new WithoutDataResource(
-            400,
-            "FILES_NOT_FOUND",
-            "Dokumen Tidak Ditemukan",
-            "Dokumen shapefile wajib diunggah."
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        400, // HTTP Status Code: Bad Request
+        "FILES_NOT_FOUND",
+        "Dokumen Tidak Ditemukan",
+        "Dokumen shapefile wajib diunggah."
+      );
+      return res.status(400).json(response.toResponse());
     }
 
+    // Validasi file upload
+    if (!req.files || req.files.length === 0) {
+      const response = new WithoutDataResource(
+        400, // HTTP Status Code: Bad Request
+        "FILES_NOT_FOUND",
+        "Dokumen Tidak Ditemukan",
+        "Dokumen shapefile wajib diunggah."
+      );
+      return res.status(400).json(response.toResponse());
+    }
     if (req.files.length > 1) {
-      return res
-        .status(400)
-        .json(
-          new WithoutDataResource(
-            400,
-            "MAX_FILES",
-            "Terlalu Banyak Dokumen",
-            "Maksimal upload adalah 1 file."
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        400, // HTTP Status Code: Bad Request
+        "MAX_FILES",
+        "Terlalu Banyak Dokumen",
+        "Maksimal upload adalah 1 file."
+      );
+      return res.status(400).json(response.toResponse());
     }
 
     for (const file of req.files) {
       if (file.size > 20 * 1024 * 1024) {
-        return res
-          .status(400)
-          .json(
-            new WithoutDataResource(
-              400,
-              "FILE_TOO_LARGE",
-              "Ukuran Dokumen Terlalu Besar",
-              "Ukuran maksimal tiap file adalah 20MB."
-            ).toResponse()
-          );
+        const response = new WithoutDataResource(
+          400, // HTTP Status Code: Bad Request
+          "FILE_TOO_LARGE",
+          "Ukuran Dokumen Terlalu Besar",
+          "Ukuran maksimal tiap file adalah 20MB."
+        );
+        return res.status(400).json(response.toResponse());
       }
     }
 
@@ -96,16 +94,13 @@ exports.storeShapeFile = async (req, res) => {
       .first();
     if (!workspace) {
       await trx.rollback();
-      return res
-        .status(400)
-        .json(
-          new WithoutDataResource(
-            400,
-            "INVALID_WORKSPACE_ID",
-            "ID Workspace Tidak Valid",
-            "workspace_id tidak ditemukan di database."
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        400, // HTTP Status Code: Bad Request
+        "INVALID_WORKSPACE_ID",
+        "ID Workspace Tidak Valid",
+        "workspace_id tidak ditemukan di database."
+      );
+      return res.status(400).json(response.toResponse());
     }
 
     // Ambil satu layer dari workspace_layers (default: pertama yang ditemukan)
@@ -116,16 +111,13 @@ exports.storeShapeFile = async (req, res) => {
       .first();
     if (!workspaceLayer) {
       await trx.rollback();
-      return res
-        .status(400)
-        .json(
-          new WithoutDataResource(
-            400,
-            "NO_WORKSPACE_LAYER_FOUND",
-            "Layer Tidak Tersedia",
-            "Tidak ditemukan layer untuk workspace yang diberikan."
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        400, // HTTP Status Code: Bad Request
+        "NO_WORKSPACE_LAYER_FOUND",
+        "Layer Tidak Tersedia",
+        "Tidak ditemukan layer untuk workspace yang diberikan."
+      );
+      return res.status(400).json(response.toResponse());
     }
 
     const tableName = `shp_workspace_${workspace_id}_layer_${workspaceLayer.id}`;
@@ -142,29 +134,23 @@ exports.storeShapeFile = async (req, res) => {
     // Ekstrak & konversi shapefile
     await handleShapefileUpload(filePath, tableName);
 
-    return res
-      .status(201)
-      .json(
-        new WithoutDataResource(
-          201,
-          "SUCCESS_CREATE_DATA",
-          "Berhasil Menyimpan Data",
-          "Dokumen shapefile berhasil diunggah, diekstrak, dan dikonversi ke database."
-        ).toResponse()
-      );
+    const response = new WithoutDataResource(
+      201, // HTTP Status Code: Created
+      "SUCCESS_CREATE_DATA",
+      "Berhasil Menyimpan Data",
+      "Dokumen shapefile berhasil diunggah, diekstrak, dan dikonversi ke database."
+    );
+    return res.status(201).json(response.toResponse());
   } catch (error) {
     await trx.rollback();
     logger.error(`| Workspace | - Error function store: ${error.message}`);
-    return res
-      .status(500)
-      .json(
-        new WithoutDataResource(
-          500,
-          "SERVER_ERROR",
-          "Server Sedang Error",
-          "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
-        ).toResponse()
-      );
+    const response = new WithoutDataResource(
+      500, // HTTP Status Code: Internal Server Error
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
+    );
+    return res.status(500).json(response.toResponse());
   }
 };
 
@@ -174,16 +160,13 @@ exports.getAllUniquePenggunaan = async (req, res) => {
       .select("id", "title")
       .whereNull("deleted_at");
     if (!workspaces || workspaces.length === 0) {
-      return res
-        .status(200)
-        .json(
-          new WithoutDataResource(
-            200,
-            "DATA_NOT_FOUND",
-            "Data Tidak Ditemukan",
-            "Tidak ada workspace yang tersedia"
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        200, // HTTP Status Code: OK
+        "DATA_NOT_FOUND",
+        "Data Tidak Ditemukan",
+        "Tidak ada workspace yang tersedia"
+      );
+      return res.status(200).json(response.toResponse());
     }
 
     const semuaFitur = [];
@@ -223,16 +206,13 @@ exports.getAllUniquePenggunaan = async (req, res) => {
     logger.error(
       `| Workspace | - Error getAllUniquePenggunaan: ${error.message}`
     );
-    return res
-      .status(500)
-      .json(
-        new WithoutDataResource(
-          500,
-          "SERVER_ERROR",
-          "Server Sedang Error",
-          "Gagal mengambil data penggunaan"
-        ).toResponse()
-      );
+    const response = new WithoutDataResource(
+      500, // HTTP Status Code: Internal Server Error
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
+    );
+    return res.status(500).json(response.toResponse());
   }
 };
 
@@ -248,12 +228,12 @@ exports.getAllShapeFilesByWorkspaceId = async (req, res) => {
     // Jika tidak ada layer sama sekali
     if (!layers || layers.length === 0) {
       const response = new WithoutDataResource(
-        404,
+        200,
         "DATA_NOT_FOUND",
         "Data Tidak Ditemukan",
         `Tidak ada layer yang tersedia di workspace ID ${workspace_id}`
       );
-      return res.status(404).json(response.toResponse());
+      return res.status(200).json(response.toResponse());
     }
 
     const results = [];
@@ -285,12 +265,12 @@ exports.getAllShapeFilesByWorkspaceId = async (req, res) => {
     // Jika tidak ada satupun tabel shapefile ditemukan
     if (results.length === 0) {
       const response = new WithoutDataResource(
-        404,
+        200,
         "SHAPEFILES_NOT_FOUND",
         "Shapefile Tidak Ditemukan",
         `Workspace ID ${workspace_id} memiliki layer, tetapi belum ada shapefile yang diunggah.`
       );
-      return res.status(404).json(response.toResponse());
+      return res.status(200).json(response.toResponse());
     }
 
     return res.json({
@@ -322,32 +302,25 @@ exports.getSingleShapefileFeature = async (req, res) => {
     // 1. Cek apakah tabel ada
     const tableExists = await knex.schema.hasTable(tableName);
     if (!tableExists) {
-      return res
-        .status(404)
-        .json(
-          new WithoutDataResource(
-            404,
-            "TABLE_NOT_FOUND",
-            "Tabel tidak ditemukan",
-            `Tabel ${tableName} tidak tersedia`
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        200, // HTTP Status Code: Not Found
+        "TABLE_NOT_FOUND",
+        "Tabel tidak ditemukan",
+        `Tabel ${tableName} tidak tersedia.`
+      );
+      return res.status(200).json(response.toResponse());
     }
 
     // 2. Ambil data berdasarkan ID
     const row = await knex(tableName).where("id", feature_id).first();
-
     if (!row) {
-      return res
-        .status(404)
-        .json(
-          new WithoutDataResource(
-            404,
-            "DATA_NOT_FOUND",
-            "Data tidak ditemukan",
-            `Data dengan ID ${feature_id} tidak ditemukan dalam tabel ${tableName}`
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        200, // HTTP Status Code: Not Found
+        "DATA_NOT_FOUND",
+        "Data tidak ditemukan",
+        `Data dengan ID ${feature_id} tidak ditemukan dalam tabel ${tableName}.`
+      );
+      return res.status(200).json(response.toResponse());
     }
 
     // 3. Ubah WKB hex ke geometry GeoJSON
@@ -395,16 +368,13 @@ exports.updateShapefileData = async (req, res) => {
   }
 
   if (!table_name || !layer_id || !parsedProperties) {
-    return res
-      .status(400)
-      .json(
-        new WithoutDataResource(
-          400,
-          "INVALID_PAYLOAD",
-          "Payload tidak valid",
-          "Field 'layer_id', 'table_name', dan 'properties.id' tidak boleh kosong."
-        ).toResponse()
-      );
+    const response = new WithoutDataResource(
+      400, // HTTP Status Code: Bad Request
+      "INVALID_PAYLOAD",
+      "Payload tidak valid",
+      "Field 'layer_id', 'table_name', dan 'properties' tidak boleh kosong."
+    );
+    return res.status(400).json(response.toResponse());
   }
 
   const trx = await knex.transaction();
@@ -415,16 +385,13 @@ exports.updateShapefileData = async (req, res) => {
     const tableExists = await trx.schema.hasTable(table_name);
     if (!tableExists) {
       await trx.rollback();
-      return res
-        .status(404)
-        .json(
-          new WithoutDataResource(
-            404,
-            "TABLE_NOT_FOUND",
-            "Tabel shapefile tidak ditemukan",
-            `Tabel ${table_name} tidak tersedia dalam database`
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        200, // HTTP Status Code: Not Found
+        "TABLE_NOT_FOUND",
+        "Tabel shapefile tidak ditemukan",
+        `Tabel ${table_name} tidak tersedia dalam database.`
+      );
+      return res.status(200).json(response.toResponse());
     }
 
     const { id, ...updateFields } = parsedProperties;
@@ -433,16 +400,13 @@ exports.updateShapefileData = async (req, res) => {
 
     if (updated === 0) {
       await trx.rollback();
-      return res
-        .status(404)
-        .json(
-          new WithoutDataResource(
-            404,
-            "DATA_NOT_FOUND",
-            "Data tidak ditemukan",
-            `Tidak ada baris dengan ID ${id} pada tabel ${table_name}`
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        200, // HTTP Status Code: Not Found
+        "DATA_NOT_FOUND",
+        "Data tidak ditemukan",
+        `Tidak ada baris dengan ID ${id} pada tabel ${table_name}.`
+      );
+      return res.status(200).json(response.toResponse());
     }
 
     const workspaceLayerExists = await trx("workspace_layers")
@@ -450,16 +414,13 @@ exports.updateShapefileData = async (req, res) => {
       .first();
     if (!workspaceLayerExists) {
       await trx.rollback();
-      return res
-        .status(404)
-        .json(
-          new WithoutDataResource(
-            404,
-            "WORKSPACE_LAYER_NOT_FOUND",
-            "Workspace Layer tidak ditemukan",
-            `Layer dengan ID ${layer_id} tidak ditemukan dalam workspace_layers.`
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        200, // HTTP Status Code: Not Found
+        "WORKSPACE_LAYER_NOT_FOUND",
+        "Workspace Layer tidak ditemukan",
+        `Layer dengan ID ${layer_id} tidak ditemukan dalam workspace_layers.`
+      );
+      return res.status(200).json(response.toResponse());
     }
 
     const workspaceLayerShapefileExists = await trx(
@@ -477,16 +438,13 @@ exports.updateShapefileData = async (req, res) => {
     // If neither workspace_layer_shapefiles nor workspace_layer_geojsons exists
     if (!workspaceLayerShapefileExists && !workspaceLayerGeojsonExists) {
       await trx.rollback();
-      return res
-        .status(404)
-        .json(
-          new WithoutDataResource(
-            404,
-            "LAYER_NOT_FOUND",
-            "Layer tidak ditemukan",
-            `Layer dengan ID ${layer_id} tidak ditemukan`
-          ).toResponse()
-        );
+      const response = new WithoutDataResource(
+        200, // HTTP Status Code: Not Found
+        "LAYER_NOT_FOUND",
+        "Layer tidak ditemukan",
+        `Layer dengan ID ${layer_id} tidak ditemukan.`
+      );
+      return res.status(200).json(response.toResponse());
     }
 
     if (req.files.length > 5) {
@@ -543,16 +501,13 @@ exports.updateShapefileData = async (req, res) => {
 
     await trx.commit();
 
-    return res
-      .status(200)
-      .json(
-        new WithoutDataResource(
-          200,
-          "SUCCESS_UPDATE_SHAPEFILE",
-          "Data berhasil diperbarui",
-          `Data shapefile dengan ID ${id} pada tabel ${table_name} berhasil diperbarui`
-        ).toResponse()
-      );
+    const response = new WithoutDataResource(
+      200, // HTTP Status Code: OK
+      "SUCCESS_UPDATE_SHAPEFILE",
+      "Data berhasil diperbarui",
+      `Data shapefile dengan ID ${id} pada tabel ${table_name} berhasil diperbarui.`
+    );
+    return res.status(200).json(response.toResponse());
   } catch (error) {
     await trx.rollback(); // Rollback jika error
     logger.error(
@@ -578,12 +533,16 @@ async function handleShapefileUpload(zipPath, tableName) {
 
   await convertShapefileToPostgres(shpFullPath, tableName);
 
-    // Setelah konversi selesai, hapus folder temp
+  // Setelah konversi selesai, hapus folder temp
   try {
     fs.rmSync(extractPath, { recursive: true, force: true });
-    logger.info(`| handleShapefileUpload | - Folder temp ${extractPath} berhasil dihapus.`);
+    logger.info(
+      `| handleShapefileUpload | - Folder temp ${extractPath} berhasil dihapus.`
+    );
   } catch (err) {
-    logger.error(`| handleShapefileUpload | - Gagal menghapus folder temp: ${err.message}`);
+    logger.error(
+      `| handleShapefileUpload | - Gagal menghapus folder temp: ${err.message}`
+    );
   }
 }
 
