@@ -111,7 +111,7 @@ async function deleteDocuments(documentIds = []) {
         continue;
       }
 
-      const filePath = path.join(__dirname, "..", "public", rows[0].file_path);
+      const filePath = path.join(__dirname, "..", "public", document.file_path);
 
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
@@ -121,7 +121,7 @@ async function deleteDocuments(documentIds = []) {
         );
       }
 
-      await knex("documents").where({ id }).update({ deleted_at: knex.fn.now() });
+      await knex("documents").where({ id }).del();
 
       deleted.push(id);
       logger.info(`| deleteDocuments | - Dokumen ${id} berhasil dihapus.`);

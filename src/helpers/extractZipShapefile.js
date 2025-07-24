@@ -58,9 +58,8 @@ async function extractZipShapefile(zipFilePath) {
     const zip = new AdmZip(zipFilePath);
     const zipEntries = zip.getEntries().map((entry) => entry.entryName);
     logger.info(
-      `| extractZipShapefile | - Isi ZIP (entries): ${JSON.stringify(
-        zipEntries
-      )}`
+      `| extractZipShapefile | - Isi ZIP (entries): 
+      ${JSON.stringify(zipEntries)}`
     );
 
     zip.extractAllTo(extractPath, true);
@@ -72,11 +71,8 @@ async function extractZipShapefile(zipFilePath) {
       `| extractZipShapefile | - Jumlah file hasil ekstrak: ${fileList.length}`
     );
     logger.info(
-      `| extractZipShapefile | - Daftar file: ${JSON.stringify(
-        fileList,
-        null,
-        2
-      )}`
+      `| extractZipShapefile | - Daftar file: 
+      ${JSON.stringify(fileList, null, 2)}`
     );
 
     return { extractPath, fileList };

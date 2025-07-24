@@ -373,11 +373,11 @@ exports.destroy = async (req, res) => {
 
       // Ambil document_id dari workspace_layer_shapefiles dan workspace_layer_geojson
       const shapefileDocumentIds = await trx("workspace_layer_shapefiles")
-        .select("document_id")
+        .select("document_id", "another_document")
         .where("workspace_layer_id", layerId);
 
       const geojsonDocumentIds = await trx("workspace_layer_geojsons")
-        .select("document_id")
+        .select("document_id", "another_document")
         .where("workspace_layer_id", layerId);
 
       // Gabungkan documentIds dari workspace_layer_shapefiles dan workspace_layer_geojson

@@ -6,6 +6,7 @@ const logger = require("../utils/logger");
 const { uploadDocuments } = require("../helpers/documentHelper");
 const WithDataResource = require("../resources/WithDataResource");
 const WithoutDataResource = require("../resources/WithoutDataResource");
+const fs = require("fs");
 const { extractZipShapefile } = require("../helpers/extractZipShapefile");
 const {
   convertShapefileToPostgres,
@@ -17,134 +18,9 @@ const {
   convertShapefileRowsToGeoJSON,
 } = require("../helpers/shapefileToGeoJSONHelper");
 
-// exports.storeShapeFile = async (req, res) => {
-//   try {
-//     const errors = validationResult(req);
-//     if (!errors.isEmpty()) {
-//       const message = errors
-//         .array()
-//         .map((err) => err.msg)
-//         .join(" ");
-//       return res
-//         .status(400)
-//         .json(
-//           new WithoutDataResource(
-//             400,
-//             "FAILED_VALIDATION",
-//             "Format Data Tidak Sesuai Ketentuan",
-//             message
-//           ).toResponse()
-//         );
-//     }
-
-//     const { workspace_layer_id } = req.body;
-
-//     if (!req.files || req.files.length === 0) {
-//       return res
-//         .status(400)
-//         .json(
-//           new WithoutDataResource(
-//             400,
-//             "FILES_NOT_FOUND",
-//             "Dokumen Tidak Ditemukan",
-//             "Dokumen shapefile wajib diunggah."
-//           ).toResponse()
-//         );
-//     }
-
-//     if (req.files.length > 1) {
-//       return res
-//         .status(400)
-//         .json(
-//           new WithoutDataResource(
-//             400,
-//             "MAX_FILES",
-//             "Terlalu Banyak Dokumen",
-//             "Maksimal upload adalah 1 file."
-//           ).toResponse()
-//         );
-//     }
-
-//     for (const file of req.files) {
-//       if (file.size > 10 * 1024 * 1024) {
-//         return res
-//           .status(400)
-//           .json(
-//             new WithoutDataResource(
-//               400,
-//               "FILE_TOO_LARGE",
-//               "Ukuran Dokumen Terlalu Besar",
-//               "Ukuran maksimal tiap file adalah 10MB."
-//             ).toResponse()
-//           );
-//       }
-//     }
-
-//     // Upload dokumen
-//     const uploadedDocuments = await uploadDocuments(req.files);
-//     const documentId = uploadedDocuments[0]?.id;
-//     const relativePath = uploadedDocuments[0]?.file_path;
-//     const filePath = path.join(__dirname, "..", "public", relativePath);
-
-//     // Cek workspace_layer_id
-//     const workspace = await knex("workspace_layers")
-//       .select("workspace_id")
-//       .where("id", workspace_layer_id)
-//       .first();
-
-//     if (!workspace) {
-//       return res
-//         .status(400)
-//         .json(
-//           new WithoutDataResource(
-//             400,
-//             "INVALID_WORKSPACE_LAYER_ID",
-//             "ID Layer Tidak Valid",
-//             "workspace_layer_id tidak ditemukan di database."
-//           ).toResponse()
-//         );
-//     }
-
-//     // Simpan ke workspace_layer_shapefiles
-//     await knex("workspace_layer_shapefiles").insert({
-//       workspace_layer_id,
-//       document_id: documentId,
-//     });
-
-//     const workspace_id = workspace.workspace_id;
-//     const tableName = `shp_workspace_${workspace_id}_layer_${workspace_layer_id}`;
-
-//     // Ekstrak & konversi shapefile
-//     await handleShapefileUpload(filePath, tableName);
-
-//     return res
-//       .status(201)
-//       .json(
-//         new WithoutDataResource(
-//           201,
-//           "SUCCESS_CREATE_DATA",
-//           "Berhasil Menyimpan Data",
-//           "Dokumen shapefile berhasil diunggah, diekstrak, dan dikonversi ke database."
-//         ).toResponse()
-//       );
-//   } catch (error) {
-//     logger.error(
-//       `| Workspace Layer | - Error function store: ${error.message}`
-//     );
-//     return res
-//       .status(500)
-//       .json(
-//         new WithoutDataResource(
-//           500,
-//           "SERVER_ERROR",
-//           "Server Sedang Error",
-//           "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
-//         ).toResponse()
-//       );
-//   }
-// };
-
 exports.storeShapeFile = async (req, res) => {
+  const trx = await knex.transaction();
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -214,12 +90,12 @@ exports.storeShapeFile = async (req, res) => {
     const filePath = path.join(__dirname, "..", "public", relativePath);
 
     // Validasi workspace_id
-    const workspace = await knex("workspaces")
+    const workspace = await trx("workspaces")
       .select("id")
       .where("id", workspace_id)
       .first();
-
     if (!workspace) {
+      await trx.rollback();
       return res
         .status(400)
         .json(
@@ -233,13 +109,13 @@ exports.storeShapeFile = async (req, res) => {
     }
 
     // Ambil satu layer dari workspace_layers (default: pertama yang ditemukan)
-    const workspaceLayer = await knex("workspace_layers")
+    const workspaceLayer = await trx("workspace_layers")
       .select("id")
       .where("workspace_id", workspace_id)
       .orderBy("id", "asc")
       .first();
-
     if (!workspaceLayer) {
+      await trx.rollback();
       return res
         .status(400)
         .json(
@@ -255,13 +131,13 @@ exports.storeShapeFile = async (req, res) => {
     const tableName = `shp_workspace_${workspace_id}_layer_${workspaceLayer.id}`;
 
     // Simpan ke tabel workspace_layer_shapefiles
-    await knex("workspace_layer_shapefiles").insert({
+    await trx("workspace_layer_shapefiles").insert({
       workspace_layer_id: workspaceLayer.id,
       document_id: documentId,
       shp_table: tableName,
     });
 
-    // Next handle untuk file geojson
+    await trx.commit();
 
     // Ekstrak & konversi shapefile
     await handleShapefileUpload(filePath, tableName);
@@ -277,6 +153,7 @@ exports.storeShapeFile = async (req, res) => {
         ).toResponse()
       );
   } catch (error) {
+    await trx.rollback();
     logger.error(`| Workspace | - Error function store: ${error.message}`);
     return res
       .status(500)
@@ -692,7 +569,7 @@ exports.updateShapefileData = async (req, res) => {
 };
 
 async function handleShapefileUpload(zipPath, tableName) {
-  const { fileList } = await extractZipShapefile(zipPath);
+  const { extractPath, fileList } = await extractZipShapefile(zipPath);
   const shpFile = fileList.find((file) => file.endsWith(".shp"));
 
   if (!shpFile) throw new Error("File .shp tidak ditemukan di dalam ZIP.");
@@ -700,6 +577,14 @@ async function handleShapefileUpload(zipPath, tableName) {
   const shpFullPath = shpFile;
 
   await convertShapefileToPostgres(shpFullPath, tableName);
+
+    // Setelah konversi selesai, hapus folder temp
+  try {
+    fs.rmSync(extractPath, { recursive: true, force: true });
+    logger.info(`| handleShapefileUpload | - Folder temp ${extractPath} berhasil dihapus.`);
+  } catch (err) {
+    logger.error(`| handleShapefileUpload | - Gagal menghapus folder temp: ${err.message}`);
+  }
 }
 
 async function getUniquePenggunaanFromGeoJSON(features) {
