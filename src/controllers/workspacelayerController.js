@@ -323,12 +323,15 @@ exports.getAllShapeFilesByWorkspaceId = async (req, res) => {
 
       const shpData = await knex(tableName).select("*");
       const geojson = convertShapefileRowsToGeoJSON(shpData);
+      const { data: features } = geojson;
+      const uniquePenggunaan = await getUniquePenggunaanFromGeoJSON(features);
 
       results.push({
         layer_id: layer.id,
         layer_name: layer.layer_name,
         description: layer.description,
         table_name: tableName,
+        penggunaan: uniquePenggunaan,
         data: geojson,
       });
     }
@@ -525,4 +528,17 @@ async function handleShapefileUpload(zipPath, tableName) {
   const shpFullPath = shpFile;
 
   await convertShapefileToPostgres(shpFullPath, tableName);
+}
+
+async function getUniquePenggunaanFromGeoJSON(features) {
+  const penggunaanSet = new Set();
+
+  for (const feature of features) {
+    const penggunaan = feature?.properties?.penggunaan;
+    if (penggunaan && typeof penggunaan === "string") {
+      penggunaanSet.add(penggunaan.trim());
+    }
+  }
+
+  return Array.from(penggunaanSet);
 }
