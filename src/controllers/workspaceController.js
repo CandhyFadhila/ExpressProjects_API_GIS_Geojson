@@ -374,20 +374,36 @@ exports.destroy = async (req, res) => {
       // Ambil document_id dari workspace_layer_shapefiles dan workspace_layer_geojson
       const shapefileDocumentIds = await trx("workspace_layer_shapefiles")
         .select("document_id")
-        .where("workspace_layer_id", layerId)
-        .pluck("document_id");
+        .where("workspace_layer_id", layerId);
 
       const geojsonDocumentIds = await trx("workspace_layer_geojsons")
         .select("document_id")
-        .where("workspace_layer_id", layerId)
-        .pluck("document_id");
+        .where("workspace_layer_id", layerId);
 
       // Gabungkan documentIds dari workspace_layer_shapefiles dan workspace_layer_geojson
-      const allDocumentIds = [...shapefileDocumentIds, ...geojsonDocumentIds];
+      const allDocumentIds = [
+        ...shapefileDocumentIds.map((item) => item.document_id),
+        ...geojsonDocumentIds.map((item) => item.document_id),
+      ];
 
-      // Hapus dokumen yang terkait
+      // Gabungkan document_id dari another_document jika ada
+      const allAnotherDocuments = [
+        ...shapefileDocumentIds
+          .filter((item) => item.another_document)
+          .map((item) => JSON.parse(item.another_document)),
+        ...geojsonDocumentIds
+          .filter((item) => item.another_document)
+          .map((item) => JSON.parse(item.another_document)),
+      ].flat();
+
+      // Hapus dokumen yang terkait dengan document_id
       if (allDocumentIds.length > 0) {
-        await deleteDocuments(allDocumentIds); // Panggil helper untuk menghapus dokumen
+        await deleteDocuments(allDocumentIds);
+      }
+
+      // Hapus dokumen yang terkait dengan another_document (array)
+      if (allAnotherDocuments.length > 0) {
+        await deleteDocuments(allAnotherDocuments);
       }
 
       // Hapus data dari relasi shapefiles & geojson

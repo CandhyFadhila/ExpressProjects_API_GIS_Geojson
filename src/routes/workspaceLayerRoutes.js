@@ -44,6 +44,7 @@ router.put(
   "/shape-files/update",
   rateLimiter,
   authMiddleware,
+  upload.array("document", 5),
   workspaceLayerController.updateShapefileData
 );
 

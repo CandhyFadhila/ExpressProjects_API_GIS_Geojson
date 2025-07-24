@@ -252,13 +252,16 @@ exports.storeShapeFile = async (req, res) => {
         );
     }
 
+    const tableName = `shp_workspace_${workspace_id}_layer_${workspaceLayer.id}`;
+
     // Simpan ke tabel workspace_layer_shapefiles
     await knex("workspace_layer_shapefiles").insert({
       workspace_layer_id: workspaceLayer.id,
       document_id: documentId,
+      shp_table: tableName,
     });
 
-    const tableName = `shp_workspace_${workspace_id}_layer_${workspaceLayer.id}`;
+    // Next handle untuk file geojson
 
     // Ekstrak & konversi shapefile
     await handleShapefileUpload(filePath, tableName);
@@ -507,9 +510,9 @@ exports.getSingleShapefileFeature = async (req, res) => {
 };
 
 exports.updateShapefileData = async (req, res) => {
-  const { table_name, properties } = req.body;
+  const { table_name, layer_id, properties } = req.body;
 
-  if (!table_name || !properties || !properties.id) {
+  if (!table_name || !layer_id || !properties || !properties.id) {
     return res
       .status(400)
       .json(
@@ -517,7 +520,7 @@ exports.updateShapefileData = async (req, res) => {
           400,
           "INVALID_PAYLOAD",
           "Payload tidak valid",
-          "Field 'table_name' dan 'properties.id' wajib ada"
+          "Field 'layer_id', 'table_name', dan 'properties.id' tidak boleh kosong."
         ).toResponse()
       );
   }
@@ -525,6 +528,8 @@ exports.updateShapefileData = async (req, res) => {
   const trx = await knex.transaction();
 
   try {
+    const createdBy = req.user?.id || 1;
+
     const tableExists = await trx.schema.hasTable(table_name);
     if (!tableExists) {
       await trx.rollback();
@@ -558,7 +563,103 @@ exports.updateShapefileData = async (req, res) => {
         );
     }
 
-    await trx.commit(); // Commit jika berhasil
+    const workspaceLayerExists = await trx("workspace_layers")
+      .where("id", layer_id)
+      .first();
+    if (!workspaceLayerExists) {
+      await trx.rollback();
+      return res
+        .status(404)
+        .json(
+          new WithoutDataResource(
+            404,
+            "WORKSPACE_LAYER_NOT_FOUND",
+            "Workspace Layer tidak ditemukan",
+            `Layer dengan ID ${layer_id} tidak ditemukan dalam workspace_layers.`
+          ).toResponse()
+        );
+    }
+
+    const workspaceLayerShapefileExists = await trx(
+      "workspace_layer_shapefiles"
+    )
+      .where("workspace_layer_id", layer_id)
+      .where("shp_table", table_name)
+      .first();
+
+    const workspaceLayerGeojsonExists = await trx("workspace_layer_geojsons")
+      .where("workspace_layer_id", layer_id)
+      .where("geojson_table", table_name)
+      .first();
+
+    // If neither workspace_layer_shapefiles nor workspace_layer_geojsons exists
+    if (!workspaceLayerShapefileExists && !workspaceLayerGeojsonExists) {
+      await trx.rollback();
+      return res
+        .status(404)
+        .json(
+          new WithoutDataResource(
+            404,
+            "LAYER_NOT_FOUND",
+            "Layer tidak ditemukan",
+            `Layer dengan ID ${layer_id} tidak ditemukan`
+          ).toResponse()
+        );
+    }
+
+    if (req.files.length > 5) {
+      const response = new WithoutDataResource(
+        400,
+        "MAX_FILES",
+        "Terlalu Banyak Dokumen",
+        "Maksimal upload adalah 5 file."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    for (const file of req.files) {
+      const allowedTypes = [
+        "application/pdf",
+        "application/msword", // for .doc files
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // for .docx files
+      ];
+      if (!allowedTypes.includes(file.mimetype)) {
+        const response = new WithoutDataResource(
+          400,
+          "INVALID_FILE_TYPE",
+          "Tipe Dokumen Salah",
+          "File dokumen hanya boleh PDF, DOC, dan DOCX."
+        );
+        return res.status(400).json(response.toResponse());
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        const response = new WithoutDataResource(
+          400,
+          "FILE_TOO_LARGE",
+          "Ukuran Dokumen Terlalu Besar",
+          "Ukuran maksimal tiap file adalah 10MB."
+        );
+        return res.status(400).json(response.toResponse());
+      }
+    }
+
+    const uploadedDocuments = await uploadDocuments(req.files, createdBy);
+    const documentIds = uploadedDocuments.map((doc) => doc.id);
+    const documentIdsJson = JSON.stringify(documentIds);
+
+    if (workspaceLayerShapefileExists) {
+      await trx("workspace_layer_shapefiles")
+        .where("workspace_layer_id", layer_id)
+        .where("shp_table", table_name)
+        .update("another_document", documentIdsJson);
+    } else if (workspaceLayerGeojsonExists) {
+      await trx("workspace_layer_geojsons")
+        .where("workspace_layer_id", layer_id)
+        .where("geojson_table", table_name)
+        .update("another_document", documentIdsJson);
+    }
+
+    await trx.commit();
 
     return res
       .status(200)
