@@ -20,17 +20,17 @@ router.patch(
 );
 
 router.get(
-  "/shape-files/:workspace_id",
-  // rateLimiter,
+  "/shape-files/get-all-penggunaan",
+  rateLimiter,
   authMiddleware,
-  workspaceLayerController.getAllShapeFilesByWorkspaceId
+  workspaceLayerController.getAllUniquePenggunaan
 );
 
 router.get(
-  "/shape-files/penggunaan",
-  // rateLimiter,
+  "/shape-files/:workspace_id",
+  rateLimiter,
   authMiddleware,
-  workspaceLayerController.getAllUniquePenggunaan
+  workspaceLayerController.getAllShapeFilesByWorkspaceId
 );
 
 router.get(

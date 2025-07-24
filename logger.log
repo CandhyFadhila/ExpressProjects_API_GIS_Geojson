@@ -1,2 +1,0 @@
-{"level":"info","message":"| Auth | - Token valid for userId: 1, at 2025-07-24T04:43:47.834Z","timestamp":"2025-07-24T04:43:47.835Z"}
-{"level":"error","message":"| Workspace Layer | - Error getAllShapeFilesByWorkspaceId: select \"id\", \"layer_name\", \"description\" from \"workspace_layers\" where \"workspace_id\" = $1 and \"deleted_at\" is null - invalid input syntax for type integer: \"penggunaan\"","timestamp":"2025-07-24T04:43:47.889Z"}
