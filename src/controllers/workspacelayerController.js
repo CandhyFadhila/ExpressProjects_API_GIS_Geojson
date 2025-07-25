@@ -129,6 +129,11 @@ exports.storeShapeFile = async (req, res) => {
       shp_table: tableName,
     });
 
+    await trx.commit();
+
+    // Ekstrak & konversi shapefile
+    await handleShapefileUpload(filePath, tableName);
+
     // Handle agar response sama seperti getAllShapeFilesByWorkspaceId
     const results = [];
 
@@ -155,11 +160,6 @@ exports.storeShapeFile = async (req, res) => {
       );
       return res.status(404).json(response.toResponse());
     }
-
-    // Ekstrak & konversi shapefile
-    await handleShapefileUpload(filePath, tableName);
-
-    await trx.commit();
 
     const response = new WithDataResource(
       201, // HTTP Status Code: Created
