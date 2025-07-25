@@ -8,12 +8,12 @@ async function convertShapefileToPostgres(
   schemaName = "public"
 ) {
   // Gunakan path lengkap ke ogr2ogr.exe
-  const ogrPath = `"C:\\Program Files\\QGIS 3.44.0\\bin\\ogr2ogr.exe"`; // <- windows
-  // const ogrPath = "ogr2ogr"; // <- linux
+  // const ogrPath = `"C:\\Program Files\\QGIS 3.44.0\\bin\\ogr2ogr.exe"`; // <- windows
+  const ogrPath = "ogr2ogr"; // <- linux
 
-  const ogrCmd = `${ogrPath} -f "PostgreSQL" PG:"host=localhost user=postgres dbname=gis_bpn password=super.admin port=5433" "${shpFilePath}" -nln ${schemaName}.${tableName} -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -lco FID=id -overwrite -t_srs EPSG:4326`; // <- windows
+  // const ogrCmd = `${ogrPath} -f "PostgreSQL" PG:"host=localhost user=postgres dbname=gis_bpn password=super.admin port=5433" "${shpFilePath}" -nln ${schemaName}.${tableName} -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -lco FID=id -overwrite -t_srs EPSG:4326`; // <- windows
 
-  // const ogrCmd = `${ogrPath} -f "PostgreSQL" PG:"host=localhost user=gisuser dbname=gisdb password=password_kuat port=5432" "${shpFilePath}" -nln ${schemaName}.${tableName} -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -lco FID=id -overwrite -t_srs EPSG:4326`; // <- linux
+  const ogrCmd = `${ogrPath} -f "PostgreSQL" PG:"host=localhost user=gisuser dbname=gisdb password=password_kuat port=5432" "${shpFilePath}" -nln ${schemaName}.${tableName} -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -lco FID=id -overwrite -t_srs EPSG:4326`; // <- linux
 
   logger.info(`| convertShapefile | Eksekusi perintah: ${ogrCmd}`);
 
@@ -41,21 +41,21 @@ async function convertShapefileToPostgres(
 
 async function checkAndFixCharacterVaryingLength(schemaName, tableName) {
   // Menggunakan pg untuk mengakses PostgreSQL dan memeriksa kolom dengan tipe character varying
-  // const client = new Client({
-  //   host: "localhost",          // -> linux
-  //   user: "gisuser",
-  //   database: "gisdb",
-  //   password: "password_kuat",
-  //   port: 5432,
-  // });
-
   const client = new Client({
-    host: "localhost",          // -> windows
-    user: "postgres",
-    database: "gis_bpn",
-    password: "super.admin",
-    port: 5433,
+    host: "localhost",          // -> linux
+    user: "gisuser",
+    database: "gisdb",
+    password: "password_kuat",
+    port: 5432,
   });
+
+  // const client = new Client({
+  //   host: "localhost",          // -> windows
+  //   user: "postgres",
+  //   database: "gis_bpn",
+  //   password: "super.admin",
+  //   port: 5433,
+  // });
 
   try {
     await client.connect();
