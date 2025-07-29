@@ -8,8 +8,9 @@ const wmsRoutes = require("./routes/wmsRoutes");
 const logger = require("./utils/logger");
 const path = require("path");
 const documentRoutes = require("./routes/documentRoutes");
-const workspaceRoutes = require("./routes/workspaceRoutes");
-const workspaceLayerRoutes = require("./routes/workspaceLayerRoutes");
+const workspaceRoutes = require("./routes/Workspaces/workspaceRoutes");
+const layersRoutes = require("./routes/Layers/layerRoutes");
+const categoriesRoutes = require("./routes/Categories/categoriesRoutes");
 const corsMiddleware = require("./middlewares/cors");
 
 const app = express();
@@ -46,18 +47,19 @@ app.get("/check-db", async (req, res) => {
 // Route API
 app.use("/api", authRoutes);
 
-// Route WMS
-app.use("/api/gis-bpn/public-request", wmsRoutes);
-
 // Route Documents
 app.use("/storage", express.static(path.join(__dirname, "public", "storage")));
 app.use("/api/gis-bpn/documents", documentRoutes);
 
+// Gen2
 // Route Workspace
 app.use("/api/gis-bpn/workspaces", workspaceRoutes);
 
-// Route Workspace Layer
-app.use("/api/gis-bpn/workspace-layers", workspaceLayerRoutes);
+// Route Layer
+app.use("/api/gis-bpn/workspaces-layers", layersRoutes);
+
+// Route Master Data Categories
+app.use("/api/gis-bpn/master-data/categories", categoriesRoutes);
 
 // Jalankan server
 const PORT = process.env.PORT || 3000;

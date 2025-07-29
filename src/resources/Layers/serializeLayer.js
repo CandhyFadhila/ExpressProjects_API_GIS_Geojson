@@ -1,0 +1,25 @@
+const knex = require("../../config/database");
+
+async function serializeLayer(layer, depth = 0) {
+  const MAX_DEPTH = 3;
+
+  const parentLayer =
+    layer.parent_layer_id && depth < MAX_DEPTH
+      ? await knex("layers").where("id", layer.parent_layer_id).first()
+      : null;
+
+  return {
+    id: layer.id,
+    parent_layer: parentLayer
+      ? await serializeLayer(parentLayer, depth + 1)
+      : null,
+    name: layer.name,
+    description: layer.description,
+    table_name: layer.table_name,
+    created_at: layer.created_at,
+    updated_at: layer.updated_at,
+    deleted_at: layer.deleted_at,
+  };
+}
+
+module.exports = serializeLayer;

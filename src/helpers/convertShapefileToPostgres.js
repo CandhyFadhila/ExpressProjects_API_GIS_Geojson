@@ -1,64 +1,131 @@
 const { exec } = require("child_process");
-const { Client } = require("pg");
+const { promisify } = require("util");
+const execAsync = promisify(exec);
+const { getPgClientByEnv } = require("../helpers/pgClient");
+const { getOgrConfigByEnv } = require("../helpers/ogrHelper");
 const logger = require("../utils/logger");
 
 async function convertShapefileToPostgres(
   shpFilePath,
   tableName,
-  schemaName = "public"
+  schemaName = "public",
+  layerId = null
 ) {
   // Gunakan path lengkap ke ogr2ogr.exe
-  // const ogrPath = `"C:\\Program Files\\QGIS 3.44.0\\bin\\ogr2ogr.exe"`; // <- windows
-  const ogrPath = "ogr2ogr"; // <- linux
-
-  // const ogrCmd = `${ogrPath} -f "PostgreSQL" PG:"host=localhost user=postgres dbname=gis_bpn password=super.admin port=5433" "${shpFilePath}" -nln ${schemaName}.${tableName} -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -lco FID=id -overwrite -t_srs EPSG:4326`; // <- windows
-
-  const ogrCmd = `${ogrPath} -f "PostgreSQL" PG:"host=localhost user=gisuser dbname=gisdb password=password_kuat port=5432" "${shpFilePath}" -nln ${schemaName}.${tableName} -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -lco FID=id -overwrite -t_srs EPSG:4326`; // <- linux
-
+  const { ogrCmd } = getOgrConfigByEnv(shpFilePath, tableName, schemaName);
   logger.info(`| convertShapefile | Eksekusi perintah: ${ogrCmd}`);
 
-  return new Promise((resolve, reject) => {
-    exec(ogrCmd, async (error, stdout, stderr) => {
-      if (error) {
-        logger.error(`| convertShapefile | Gagal: ${error.message}`);
-        return reject(new Error("Gagal mengimpor shapefile ke PostgreSQL"));
-      }
-
-      if (stderr) logger.warn(`| convertShapefile | STDERR: ${stderr}`);
-      if (stdout) logger.info(`| convertShapefile | STDOUT: ${stdout}`);
-
-      // Jika konversi berhasil, lanjutkan untuk memeriksa dan memperbaiki panjang kolom
-      try {
-        await checkAndFixCharacterVaryingLength(schemaName, tableName);
-        resolve(`Berhasil impor shapefile ke tabel ${schemaName}.${tableName}`);
-      } catch (err) {
-        logger.error(`| convertShapefile | Gagal memeriksa kolom: ${err.message}`);
-        reject(new Error("Gagal memeriksa kolom setelah konversi shapefile"));
-      }
+  try {
+    // 1. Eksekusi perintah ogr2ogr
+    const { stdout, stderr } = await execAsync(ogrCmd, {
+      maxBuffer: 1024 * 1024 * 10,
+      timeout: 60000,
     });
-  });
+
+    if (stderr) logger.warn(`| convertShapefile | STDERR: ${stderr}`);
+    if (stdout) logger.info(`| convertShapefile | STDOUT: ${stdout}`);
+
+    // 2. Tunggu hingga tabel benar-benar tersedia
+    const clientCheck = await getPgClientByEnv();
+    try {
+      let retries = 10;
+      let tableExists = false;
+
+      while (retries > 0) {
+        const result = await clientCheck.query(
+          `SELECT to_regclass('"${schemaName}"."${tableName}"') AS exists`
+        );
+
+        if (result.rows[0].exists) {
+          tableExists = true;
+          break;
+        }
+
+        retries--;
+        logger.info(
+          `| convertShapefile | Menunggu tabel "${tableName}" tersedia... (${
+            10 - retries
+          }/10)`
+        );
+        await new Promise((res) => setTimeout(res, 500)); // delay 0.5 detik
+      }
+
+      if (!tableExists) {
+        throw new Error(
+          `Tabel "${schemaName}"."${tableName}" tidak ditemukan setelah import.`
+        );
+      }
+    } finally {
+      await clientCheck.end();
+    }
+
+    // 3. Tambahkan kolom + constraint
+    await alterTableForMeta(schemaName, tableName);
+
+    // 4. Perbaiki panjang kolom jika perlu
+    await checkAndFixCharacterVaryingLength(schemaName, tableName);
+
+    // 5. Isi layer_id jika ada
+    if (layerId) {
+      const client = await getPgClientByEnv();
+      try {
+        await client.query(
+          `UPDATE "${schemaName}"."${tableName}" SET layer_id = $1`,
+          [layerId]
+        );
+        logger.info(
+          `| convertShapefile | Semua baris di tabel ${schemaName}.${tableName} berhasil diisi layer_id = ${layerId}`
+        );
+      } catch (err) {
+        logger.warn(
+          `| convertShapefile | Gagal mengisi layer_id: ${err.message}`
+        );
+      } finally {
+        await client.end();
+      }
+    }
+
+    return `Berhasil impor shapefile dan modifikasi kolom di tabel ${schemaName}.${tableName}`;
+  } catch (err) {
+    logger.error(`| convertShapefile | Gagal: ${err.message}`);
+    throw new Error("Gagal memproses shapefile ke PostgreSQL");
+  }
 }
 
-async function checkAndFixCharacterVaryingLength(schemaName, tableName) {
-  // Menggunakan pg untuk mengakses PostgreSQL dan memeriksa kolom dengan tipe character varying
-  const client = new Client({
-    host: "localhost",          // -> linux
-    user: "gisuser",
-    database: "gisdb",
-    password: "password_kuat",
-    port: 5432,
-  });
-
-  // const client = new Client({
-  //   host: "localhost",          // -> windows
-  //   user: "postgres",
-  //   database: "gis_bpn",
-  //   password: "super.admin",
-  //   port: 5433,
-  // });
+// Tambah kolom layer_id dan document_ids
+async function alterTableForMeta(schemaName, tableName) {
+  const client = await getPgClientByEnv();
 
   try {
-    await client.connect();
+    // 1. Tambahkan kolom layer_id jika belum ada
+    await client.query(`
+      ALTER TABLE "${schemaName}"."${tableName}"
+      ADD COLUMN IF NOT EXISTS layer_id BIGINT;
+    `);
+
+    // 2. Tambahkan kolom document_ids jika belum ada
+    await client.query(`
+      ALTER TABLE "${schemaName}"."${tableName}"
+      ADD COLUMN IF NOT EXISTS document_ids JSONB DEFAULT '[]';
+    `);
+
+    logger.info(
+      `| alterTable | Kolom layer_id dan document_ids berhasil ditambahkan pada ${schemaName}.${tableName}`
+    );
+  } catch (err) {
+    throw new Error(
+      `Gagal menambahkan kolom/constraint ke tabel: ${err.message}`
+    );
+  } finally {
+    await client.end();
+  }
+}
+
+// Update kolom shp jadi lowercase
+async function checkAndFixCharacterVaryingLength(schemaName, tableName) {
+  const client = await getPgClientByEnv();
+
+  try {
     const query = `
       SELECT column_name, character_maximum_length
       FROM information_schema.columns
@@ -81,8 +148,8 @@ async function checkAndFixCharacterVaryingLength(schemaName, tableName) {
       );
       for (const column of columnsToUpdate) {
         const alterQuery = `
-          ALTER TABLE ${schemaName}.${tableName}
-          ALTER COLUMN ${column.column_name} SET DATA TYPE character varying(254);
+          ALTER TABLE "${schemaName}"."${tableName}"
+          ALTER COLUMN "${column.column_name}" SET DATA TYPE character varying(254);
         `;
         await client.query(alterQuery);
         logger.info(

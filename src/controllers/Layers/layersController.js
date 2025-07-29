@@ -1,0 +1,449 @@
+const { validationResult } = require("express-validator");
+const knex = require("../../config/database");
+const logger = require("../../utils/logger");
+const {
+  uploadDocuments,
+  deleteDocuments,
+} = require("../../helpers/documentHelper");
+const WithDataResource = require("../../resources/WithDataResource");
+const WithoutDataResource = require("../../resources/WithoutDataResource");
+const fs = require("fs");
+const path = require("path");
+const { extractZipShapefile } = require("../../helpers/extractZipShapefile");
+const {
+  convertShapefileToPostgres,
+} = require("../../helpers/convertShapefileToPostgres");
+const workspaceResource = require("../../resources/Workspaces/workspaceResource");
+const {
+  convertShapefileRowsToGeoJSON,
+} = require("../../helpers/shapefileToGeoJSONHelper");
+const {
+  resolveArrayRelations,
+} = require("../../helpers/resolveArrayRelations");
+const serializeLayer = require("../../resources/Layers/serializeLayer");
+
+exports.store = async (req, res) => {
+  const trx = await knex.transaction();
+  const { workspace_id, parent_layer_id, name, description, table_name } =
+    req.body;
+
+  try {
+    // 1. Validasi dengan express-validator
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      const message = errors
+        .array()
+        .map((err) => err.msg)
+        .join(" ");
+      const response = new WithoutDataResource(
+        400,
+        "FAILED_VALIDATION",
+        "Format Data Tidak Sesuai Ketentuan",
+        message
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 2. Validasi manual untuk files (req.files)
+    if (!req.files || req.files.length === 0) {
+      const response = new WithoutDataResource(
+        400,
+        "FILES_NOT_FOUND",
+        "Dokumen Tidak Ditemukan",
+        "Dokumen shapefile atau geojson wajib diunggah."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+    if (req.files.length > 1) {
+      const response = new WithoutDataResource(
+        400,
+        "MAX_FILES",
+        "Terlalu Banyak Dokumen",
+        "Maksimal hanya 1 file ZIP yang dapat diunggah."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    for (const file of req.files) {
+      const allowedTypes = ["application/zip", "application/x-zip-compressed"];
+      if (!allowedTypes.includes(file.mimetype)) {
+        const response = new WithoutDataResource(
+          400,
+          "INVALID_FILE_TYPE",
+          "Tipe Dokumen Salah",
+          "File yang diunggah harus berformat .zip dan berisi shapefile atau geojson."
+        );
+        return res.status(400).json(response.toResponse());
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        const response = new WithoutDataResource(
+          400,
+          "FILE_TOO_LARGE",
+          "Ukuran Dokumen Terlalu Besar",
+          "Ukuran maksimal tiap file adalah 20MB."
+        );
+        return res.status(400).json(response.toResponse());
+      }
+    }
+
+    // 3. Upload dokumen (document_id)
+    const uploadedDocuments = await uploadDocuments(req.files);
+    const document_id = uploadedDocuments[0]?.id;
+    const relativePath = uploadedDocuments[0]?.file_path;
+    const pathRoot = path.resolve(__dirname, "../../");
+    const filePath = path.join(pathRoot, "public", relativePath);
+
+    // 4. Simpan ke tabel layers
+    const [newLayer] = await trx("layers")
+      .insert({
+        workspace_id,
+        parent_layer_id: parent_layer_id || null,
+        document_id,
+        name,
+        description,
+        table_name,
+      })
+      .returning("*");
+
+    // Ekstrak & konversi shapefile
+    await handleShapefileUpload(filePath, table_name, newLayer.id);
+
+    await trx.commit();
+
+    const savedLayer = await knex("layers").where("id", newLayer.id).first();
+    const result = await layersResource(savedLayer);
+
+    const response = new WithDataResource(
+      201,
+      "SUCCESS_CREATE_DATA",
+      "Berhasil Menyimpan Data",
+      `Data layer '${name}' berhasil ditambahkan.`,
+      result
+    );
+    return res.status(201).json(response.toResponse());
+  } catch (error) {
+    await trx.rollback();
+    logger.error(`| Layers | - Error function store: ${error.message}`);
+    const response = new WithoutDataResource(
+      500,
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
+    );
+    res.status(500).json(response.toResponse());
+  }
+};
+
+exports.update = async (req, res) => {
+  const trx = await knex.transaction();
+  const { workspace_id, parent_layer_id, name, description, table_name } =
+    req.body;
+  const id = req.params.id;
+
+  try {
+    // 1. Validasi
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      const message = errors
+        .array()
+        .map((err) => err.msg)
+        .join(" ");
+      const response = new WithoutDataResource(
+        400,
+        "FAILED_VALIDATION",
+        "Format Data Tidak Sesuai Ketentuan",
+        message
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 2. Cek apakah data ada
+    const existing = await trx("layers").where("id", id).first();
+    if (!existing) {
+      const response = new WithoutDataResource(
+        200,
+        "DATA_NOT_FOUND",
+        "Data Tidak Ditemukan",
+        `Data layer dengan ID '${id}' tidak ditemukan.`
+      );
+      return res.status(200).json(response.toResponse());
+    }
+
+    // 3. Cek duplikat table_name (kecuali dirinya sendiri)
+    const duplicate = await trx("layers")
+      .where("table_name", table_name)
+      .whereNull("deleted_at")
+      .whereNot("id", id)
+      .first();
+    if (duplicate) {
+      const response = new WithoutDataResource(
+        400,
+        "DUPLICATE_TABLE_NAME",
+        "Nama Tabel Duplikat",
+        `Nama tabel '${table_name}' sudah digunakan pada layer lain.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 4. Ambil dokumen sebelumnya
+    const oldDocId = existing.document_id;
+    let finalDocId = oldDocId;
+
+    // 5. Upload dokumen baru
+    let newDocId = null;
+    if (req.files && req.files.length > 0) {
+      const file = req.files[0];
+      const allowedMime = ["application/zip", "application/x-zip-compressed"];
+      const ext = path.extname(file.originalname).toLowerCase();
+
+      if (!allowedMime.includes(file.mimetype) || ext !== ".zip") {
+        const response = new WithoutDataResource(
+          400,
+          "INVALID_FILE_TYPE",
+          "Tipe File Tidak Valid",
+          "File yang diunggah harus berformat .zip dan berisi shapefile atau geojson."
+        );
+        return res.status(400).json(response.toResponse());
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        const response = new WithoutDataResource(
+          400,
+          "FILE_TOO_LARGE",
+          "Ukuran File Terlalu Besar",
+          "Ukuran maksimal file ZIP adalah 20MB."
+        );
+        return res.status(400).json(response.toResponse());
+      }
+
+      // 🔥 Hapus dokumen lama dan drop tabel lama
+      if (oldDocId) {
+        await handleDeleteTableWithDocument(existing.table_name, oldDocId);
+        finalDocId = null;
+      }
+
+      const uploads = await uploadDocuments([file]);
+      newDocId = uploads[0]?.id;
+
+      // Ekstrak file ZIP ke tabel_name
+      const relativePath = uploads[0]?.file_path;
+      const pathRoot = path.resolve(__dirname, "../../");
+      const filePath = path.join(pathRoot, "public", relativePath);
+
+      await handleShapefileUpload(filePath, table_name);
+    }
+
+    // 7. Finalisasi dokumen
+    const document_id = newDocId || finalDocId;
+
+    // 8. Update ke database
+    await trx("layers")
+      .where("id", id)
+      .update({
+        workspace_id,
+        parent_layer_id: parent_layer_id || null,
+        document_id,
+        name,
+        description,
+        table_name,
+        updated_at: trx.fn.now(),
+      });
+
+    // 9. Commit
+    await trx.commit();
+
+    const saved = await knex("layers").where("id", id).first();
+    const result = await layersResource(saved);
+
+    const response = new WithDataResource(
+      200,
+      "SUCCESS_UPDATE_DATA",
+      "Berhasil Memperbarui",
+      `Data Layer '${name}' berhasil diperbarui.`,
+      result
+    );
+    return res.status(200).json(response.toResponse());
+  } catch (error) {
+    await trx.rollback();
+    logger.error(`| Layers | - Error function update : ${error.message}`);
+    const response = new WithoutDataResource(
+      500,
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem. Silakan coba lagi nanti."
+    );
+    return res.status(500).json(response.toResponse());
+  }
+};
+
+exports.destroy = async (req, res) => {
+  const id = req.params.id;
+  const trx = await knex.transaction();
+
+  try {
+    // 1. Ambil data layer
+    const existing = await trx("layers").where("id", id).first();
+    if (!existing) {
+      const response = new WithoutDataResource(
+        200,
+        "DATA_NOT_FOUND",
+        "Data Tidak Ditemukan",
+        `Workspace dengan ID '${id}' tidak ditemukan.`
+      );
+      return res.status(200).json(response.toResponse());
+    }
+
+    const { table_name, document_id } = existing;
+
+    // 2. Jalankan helper untuk hapus tabel dan dokumen
+    await handleDeleteTableWithDocument(table_name, document_id);
+
+    // 3. Hapus layer dari DB
+    await trx("layers").where("id", id).del();
+
+    await trx.commit();
+
+    const response = new WithoutDataResource(
+      200,
+      "SUCCESS_DELETE_DATA",
+      "Berhasil Menghapus Data",
+      `Layer dan seluruh data tabel shapefile atau geojson yang terkait berhasil dihapus.`
+    );
+    return res.status(200).json(response.toResponse());
+  } catch (error) {
+    await trx.rollback();
+    logger.error(`| Layers | - Error function destroy : ${error.message}`);
+    const response = new WithoutDataResource(
+      500,
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem. Silakan coba lagi nanti."
+    );
+    return res.status(500).json(response.toResponse());
+  }
+};
+
+// TODO: ambil api untuk get layers by workspace id
+
+async function layersResource(layer, depth = 0) {
+  const MAX_DEPTH = 3;
+  const workspace = layer.workspace_id
+    ? await knex("workspaces").where("id", layer.workspace_id).first()
+    : null;
+
+  const parentLayer =
+    layer.parent_layer_id && depth < MAX_DEPTH
+      ? await knex("layers").where("id", layer.parent_layer_id).first()
+      : null;
+
+  const serializedLayer = await serializeLayer(layer);
+
+  // Ambil semua baris dari table_name
+  let data = [];
+  try {
+    const rows = await knex(layer.table_name).select("*");
+
+    for (const row of rows) {
+      const { bbox, center, ...geojson } = convertShapefileRowsToGeoJSON([row]);
+
+      const documents = await resolveArrayRelations(
+        row.document_ids || [],
+        "documents"
+      );
+
+      data.push({
+        id: row.id,
+        layer_id: serializedLayer,
+        documents,
+        bbox,
+        bbox_center: center,
+        geojson,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        deleted_at: row.deleted_at,
+      });
+    }
+  } catch (err) {
+    console.error(
+      `❌ Error mengambil data dari ${layer.table_name}:`,
+      err.message
+    );
+    data = [];
+  }
+
+  return {
+    id: layer.id,
+    workspace: workspace ? await workspaceResource(workspace) : null,
+    parent_layer: parentLayer
+      ? await layersResource(parentLayer, depth + 1)
+      : null,
+    name: layer.name,
+    description: layer.description,
+    table_name: layer.table_name,
+    data,
+    created_at: layer.created_at,
+    updated_at: layer.updated_at,
+    deleted_at: layer.deleted_at,
+  };
+}
+
+async function handleShapefileUpload(zipPath, tableName, layerId) {
+  const { extractPath, fileList } = await extractZipShapefile(zipPath);
+  const shpFile = fileList.find((file) => file.endsWith(".shp"));
+
+  if (!shpFile) throw new Error("File .shp tidak ditemukan di dalam ZIP.");
+
+  const shpFullPath = shpFile;
+
+  await convertShapefileToPostgres(shpFullPath, tableName, "public", layerId);
+
+  // Setelah konversi selesai, hapus folder temp
+  try {
+    fs.rmSync(extractPath, { recursive: true, force: true });
+    logger.info(
+      `| handleShapefileUpload | - Folder temp ${extractPath} berhasil dihapus.`
+    );
+  } catch (err) {
+    logger.error(
+      `| handleShapefileUpload | - Gagal menghapus folder temp: ${err.message}`
+    );
+  }
+}
+
+async function handleDeleteTableWithDocument(tableName, layerDocumentId) {
+  try {
+    // 1. Cek apakah kolom "document_ids" ada di dalam table
+    const columnCheck = await knex("information_schema.columns")
+      .select("column_name")
+      .where({
+        table_name: tableName,
+        column_name: "document_ids",
+      });
+
+    let collectedDocIds = [];
+
+    // 2. Jika kolomnya ada, ambil dan proses datanya
+    if (columnCheck.length > 0) {
+      const records = await knex.select("document_ids").from(tableName);
+
+      collectedDocIds = records
+        .flatMap((row) => row.document_ids || [])
+        .filter((v, i, arr) => arr.indexOf(v) === i); // hapus duplikat
+
+      if (collectedDocIds.length > 0) {
+        await deleteDocuments(collectedDocIds);
+      }
+    }
+
+    // 3. Hapus dokumen utama dari layer jika ada dan belum termasuk di array
+    if (layerDocumentId && !collectedDocIds.includes(layerDocumentId)) {
+      await deleteDocuments([layerDocumentId]);
+    }
+
+    // 4. Drop table fisik dari PostgreSQL
+    await knex.raw(`DROP TABLE IF EXISTS "${tableName}" CASCADE`);
+  } catch (error) {
+    throw new Error(
+      `Gagal menghapus dokumen dan tabel '${tableName}': ${error.message}`
+    );
+  }
+}

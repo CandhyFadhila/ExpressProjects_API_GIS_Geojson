@@ -1,16 +1,16 @@
 const express = require("express");
 const router = express.Router();
-const workspaceController = require("../controllers/workspaceController");
-const validate = require("../middlewares/validate");
+const workspaceController = require("../../controllers/Workspaces/workspaceController");
+const validate = require("../../middlewares/validate");
 const {
   storeWorkspaceValidator,
-} = require("../validators/storeWorkspaceValidator");
+} = require("../../validators/Workspaces/storeWorkspaceValidator");
 const {
   updateWorkspaceValidator,
-} = require("../validators/updateWorkspaceValidator");
-const authMiddleware = require("../middlewares/authMiddleware");
-const rateLimiter = require("../middlewares/rateLimitMiddleware");
-const upload = require("../middlewares/multerMiddleware");
+} = require("../../validators/Workspaces/updateWorkspaceValidator");
+const authMiddleware = require("../../middlewares/authMiddleware");
+const rateLimiter = require("../../middlewares/rateLimitMiddleware");
+const upload = require("../../middlewares/multerMiddleware");
 
 router.get(
   "/index",
@@ -51,13 +51,6 @@ router.delete(
   rateLimiter,
   authMiddleware,
   workspaceController.destroy
-);
-
-router.patch(
-  "/restore/:id",
-  rateLimiter,
-  authMiddleware,
-  workspaceController.restore
 );
 
 module.exports = router;

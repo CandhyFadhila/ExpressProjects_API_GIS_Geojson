@@ -20,7 +20,7 @@ function formatFileSize(bytes) {
   return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
 }
 
-async function uploadDocuments(files, uploadedBy, verifiedBy = 1) {
+async function uploadDocuments(files) {
   const uploadedResults = [];
 
   // Buat direktori target sekali di awal
@@ -54,19 +54,16 @@ async function uploadDocuments(files, uploadedBy, verifiedBy = 1) {
       const relativePath = `storage/documents/${randomName}`;
       const fileUrl = `${process.env.APP_URL}/${relativePath}`;
       const mimeType = file.mimetype;
-      const fileSize = formatFileSize(file.size);
-      const fileId = uuidv4();
+      const fileSizeRaw = file.size; // in bytes (integer)
+      const fileSizeFormatted = formatFileSize(fileSizeRaw);
 
       const result = await knex("documents")
         .insert({
-          uploaded_by: uploadedBy,
-          verified_by: verifiedBy,
-          file_id: fileId,
           file_name: randomName,
           file_path: relativePath,
           file_url: fileUrl,
           file_mime_type: mimeType,
-          file_size: fileSize,
+          file_size: fileSizeRaw,
         })
         .returning(["id", "created_at", "updated_at", "deleted_at"]);
 
@@ -74,12 +71,11 @@ async function uploadDocuments(files, uploadedBy, verifiedBy = 1) {
 
       uploadedResults.push({
         id: inserted.id,
-        file_id: fileId,
         filename: randomName,
         file_path: relativePath,
         file_url: fileUrl,
         file_mime_type: mimeType,
-        file_size: fileSize,
+        file_size: fileSizeFormatted,
         created_at: inserted.created_at,
         updated_at: inserted.updated_at,
         deleted_at: inserted.deleted_at,

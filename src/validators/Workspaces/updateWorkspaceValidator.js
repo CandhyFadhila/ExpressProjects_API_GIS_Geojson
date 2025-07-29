@@ -1,4 +1,5 @@
 const { body } = require("express-validator");
+const knex = require("../../config/database");
 
 exports.updateWorkspaceValidator = [
   body("title")
@@ -18,10 +19,20 @@ exports.updateWorkspaceValidator = [
     .isString()
     .withMessage("Deskripsi workspace harus berupa teks."),
 
-  body("delete_document_ids")
+  body("category_id")
     .optional()
-    .isArray()
-    .withMessage("Format ID dokumen yang dihapus harus berupa array."),
+    .isInt()
+    .withMessage("Kategori workspace harus berupa angka.")
+    .bail()
+    .custom(async (value) => {
+      const category = await knex("workspace_categories")
+        .where("id", value)
+        .first();
+      if (!category) {
+        throw new Error("Kategori workspace tidak ditemukan.");
+      }
+      return true;
+    }),
 
   body("delete_document_ids.*")
     .optional()
