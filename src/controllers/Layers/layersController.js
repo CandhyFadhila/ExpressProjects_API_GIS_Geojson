@@ -343,12 +343,12 @@ exports.getLayersbyWorkspaceId = async (req, res) => {
     // Jika tidak ada layer sama sekali
     if (!layers || layers.length === 0) {
       const response = new WithoutDataResource(
-        200,
-        "DATA_NOT_FOUND",
-        "Data Tidak Ditemukan",
+        404,
+        "LAYERS_NOT_FOUND",
+        "Layer Tidak Ditemukan",
         `Tidak ada layer yang tersedia di workspace ID ${workspace_id}`
       );
-      return res.status(200).json(response.toResponse());
+      return res.status(404).json(response.toResponse());
     }
 
     // 2. Serialize setiap layer dengan layersResource
@@ -561,7 +561,6 @@ exports.updateShapefileData = async (req, res) => {
   }
 };
 
-// TODO: Masalah pada data => harusnya object bukan array
 async function layersResource(layer, depth = 0) {
   const MAX_DEPTH = 3;
   const workspace = layer.workspace_id

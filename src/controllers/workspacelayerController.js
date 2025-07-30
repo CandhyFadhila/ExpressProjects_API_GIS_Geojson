@@ -257,8 +257,8 @@ exports.getAllShapeFilesByWorkspaceId = async (req, res) => {
     if (!layers || layers.length === 0) {
       const response = new WithoutDataResource(
         404,
-        "DATA_NOT_FOUND",
-        "Data Tidak Ditemukan",
+        "LAYERS_NOT_FOUND",
+        "Layer Tidak Ditemukan",
         `Tidak ada layer yang tersedia di workspace ID ${workspace_id}`
       );
       return res.status(404).json(response.toResponse());
