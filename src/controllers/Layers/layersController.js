@@ -576,36 +576,44 @@ async function layersResource(layer, depth = 0) {
   const serializedLayer = await serializeLayer(layer);
 
   // Ambil semua baris dari table_name
-  let data = [];
+  let data = null;
   try {
     const rows = await knex(layer.table_name).select("*");
 
-    for (const row of rows) {
-      const { bbox, center, ...geojson } = convertShapefileRowsToGeoJSON([row]);
+    if (rows.length > 0) {
+      const firstRow = rows[0];
+
+      const geojsonResult = convertShapefileRowsToGeoJSON(rows);
+      const features = geojsonResult.features;
+      const bbox = geojsonResult.bbox;
+      const center = geojsonResult.center;
 
       const documents = await resolveArrayRelations(
-        row.document_ids || [],
+        firstRow.document_ids || [],
         "documents"
       );
 
-      data.push({
-        id: row.id,
+      data = {
+        id: firstRow.id,
         layer_id: serializedLayer,
         documents,
         bbox,
         bbox_center: center,
-        geojson,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        deleted_at: row.deleted_at,
-      });
+        geojson: {
+          type: "FeatureCollection",
+          features,
+        },
+        created_at: firstRow.created_at,
+        updated_at: firstRow.updated_at,
+        deleted_at: firstRow.deleted_at,
+      };
     }
   } catch (err) {
     console.error(
       `❌ Error mengambil data dari ${layer.table_name}:`,
       err.message
     );
-    data = [];
+    data = null;
   }
 
   return {

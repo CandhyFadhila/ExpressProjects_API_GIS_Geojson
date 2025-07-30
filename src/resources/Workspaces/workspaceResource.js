@@ -29,7 +29,7 @@ async function workspaceResource(workspace) {
       [workspace.document_id],
       "documents"
     ),
-    category: category ? await categoriesResource(category) : null,
+    workspace_category: category ? await categoriesResource(category) : null,
     layers: serializedLayers,
     created_at: workspace.created_at,
     updated_at: workspace.updated_at,
