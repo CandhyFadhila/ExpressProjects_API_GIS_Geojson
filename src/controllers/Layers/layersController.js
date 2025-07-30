@@ -389,6 +389,178 @@ exports.getLayersbyWorkspaceId = async (req, res) => {
   }
 };
 
+exports.updateShapefileData = async (req, res) => {
+  const { table_name, layer_id, properties, delete_document_ids } = req.body;
+  const trx = await knex.transaction();
+
+  try {
+    // 0. Validasi table_name ada di database
+    const tableCheck = await knex.raw(`SELECT to_regclass(?) AS exists`, [
+      table_name,
+    ]);
+    if (!tableCheck.rows[0]?.exists) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "TABLE_NOT_FOUND",
+        "Tabel tidak ditemukan",
+        `Tabel '${table_name}' tidak ditemukan di database.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 0. Validasi layer_id ada
+    const layer = await trx("layers")
+      .where("id", layer_id)
+      .whereNull("deleted_at")
+      .first();
+    if (!layer) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "LAYER_NOT_FOUND",
+        "Layer tidak ditemukan",
+        `Layer dengan ID ${layer_id} tidak ditemukan.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 1. Parsing properti
+    let parsedProperties = properties;
+    if (typeof properties === "string") {
+      parsedProperties = JSON.parse(properties);
+    }
+
+    // 2. Update data berdasarkan ID dalam properties
+    const { id, ...updateFields } = parsedProperties;
+    const updated = await trx(table_name).where("id", id).update(updateFields);
+    if (updated === 0) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        404, // HTTP Status Code: Not Found
+        "DATA_NOT_FOUND",
+        "Data tidak ditemukan",
+        `Tidak ada baris dengan ID ${id} pada tabel ${table_name}.`
+      );
+      return res.status(404).json(response.toResponse());
+    }
+
+    // 3. Ambil document_ids yang sudah ada
+    const existing = await trx(table_name).where("id", id).first();
+    let currentIds = existing?.document_ids || [];
+
+    let deletedIds = delete_document_ids;
+    if (typeof delete_document_ids === "string") {
+      try {
+        deletedIds = JSON.parse(delete_document_ids);
+      } catch (err) {
+        await trx.rollback();
+        const response = new WithoutDataResource(
+          400, // HTTP Status Code: Not Found
+          "INVALID_DELETE_DOC_IDS",
+          "Format delete_document_ids tidak valid",
+          "Pastikan delete_document_ids berbentuk array JSON yang benar, contoh: [1,2,3]"
+        );
+        return res.status(400).json(response.toResponse());
+      }
+    }
+
+    // 4. Proses penghapusan dokumen jika ada
+    if (Array.isArray(deletedIds) && deletedIds.length > 0) {
+      // Hapus dokumen dari tabel documents
+      await trx("documents").whereIn("id", deletedIds).del();
+
+      // Filter keluar dokumen yang dihapus dari currentIds
+      currentIds = currentIds.filter((docId) => !deletedIds.includes(docId));
+
+      // Simpan kembali ke kolom document_ids
+      await trx(table_name)
+        .where("id", id)
+        .update({ document_ids: JSON.stringify(currentIds) });
+    }
+
+    // 5. Validasi & upload dokumen jika ada
+    let uploadedDocumentIds = [];
+    if (req.files && req.files.length > 0) {
+      if (req.files.length + currentIds.length > 5) {
+        await trx.rollback();
+        return res
+          .status(400)
+          .json(
+            new WithoutDataResource(
+              400,
+              "MAX_TOTAL_FILES",
+              "Terlalu Banyak Dokumen",
+              `Dokumen sebelumnya berjumlah ${currentIds.length}, jika ditambah ${req.files.length} akan melebihi batas maksimal 5 file.`
+            ).toResponse()
+          );
+      }
+
+      for (const file of req.files) {
+        const allowedTypes = [
+          "application/pdf",
+          "application/msword", // for .doc files
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // for .docx files
+        ];
+        if (!allowedTypes.includes(file.mimetype)) {
+          const response = new WithoutDataResource(
+            400,
+            "INVALID_FILE_TYPE",
+            "Tipe Dokumen Salah",
+            "File dokumen hanya boleh PDF, DOC, dan DOCX."
+          );
+          return res.status(400).json(response.toResponse());
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          const response = new WithoutDataResource(
+            400,
+            "FILE_TOO_LARGE",
+            "Ukuran Dokumen Terlalu Besar",
+            "Ukuran maksimal tiap file adalah 10MB."
+          );
+          return res.status(400).json(response.toResponse());
+        }
+      }
+
+      const uploadedDocuments = await uploadDocuments(req.files);
+      uploadedDocumentIds = uploadedDocuments.map((doc) => doc.id);
+      const newIds = [...new Set([...currentIds, ...uploadedDocumentIds])];
+
+      await trx(table_name)
+        .where("id", id)
+        .update({ document_ids: JSON.stringify(newIds) });
+    }
+
+    // 6. Commit transaksi
+    await trx.commit();
+
+    // 7. Ambil kembali layer terbaru
+    const updatedLayer = await knex("layers").where("id", layer_id).first();
+    const result = await layersResource(updatedLayer);
+
+    const response = new WithDataResource(
+      200,
+      "SUCCESS_UPDATE_SHAPEFILE",
+      "Data berhasil diperbarui",
+      `Data shapefile dengan ID ${id} pada tabel ${table_name} berhasil diperbarui.`,
+      result
+    );
+    return res.status(200).json(response.toResponse());
+  } catch (error) {
+    await trx.rollback(); // Rollback jika error
+    logger.error(
+      `| Update Shapefile | - Error updateShapefileData: ${error.message}`
+    );
+    const response = new WithoutDataResource(
+      500,
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
+    );
+    res.status(500).json(response.toResponse());
+  }
+};
+
 async function layersResource(layer, depth = 0) {
   const MAX_DEPTH = 3;
   const workspace = layer.workspace_id

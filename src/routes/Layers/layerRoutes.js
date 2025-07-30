@@ -8,6 +8,9 @@ const {
 const {
   updateLayerValidator,
 } = require("../../validators/Layers/updateLayerValidator");
+const {
+  updateShpGeoDataValidator,
+} = require("../../validators/Layers/updateShpGeoDataValidator");
 const authMiddleware = require("../../middlewares/authMiddleware");
 const rateLimiter = require("../../middlewares/rateLimitMiddleware");
 const upload = require("../../middlewares/multerMiddleware");
@@ -17,6 +20,16 @@ router.get(
   rateLimiter,
   authMiddleware,
   layersController.getLayersbyWorkspaceId
+);
+
+router.patch(
+  "/update-shp-geo-data",
+  rateLimiter,
+  authMiddleware,
+  upload.array("file", 5),
+  updateShpGeoDataValidator,
+  validate,
+  layersController.updateShapefileData
 );
 
 router.post(
