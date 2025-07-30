@@ -16,6 +16,7 @@ async function serializeLayer(layer, depth = 0) {
     name: layer.name,
     description: layer.description,
     table_name: layer.table_name,
+    layer_type: layer.layer_type,
     created_at: layer.created_at,
     updated_at: layer.updated_at,
     deleted_at: layer.deleted_at,

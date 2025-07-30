@@ -31,6 +31,7 @@ exports.store = async (req, res) => {
     description,
     table_name,
     file_type,
+    layer_type,
   } = req.body;
 
   try {
@@ -112,6 +113,7 @@ exports.store = async (req, res) => {
         name,
         description,
         table_name,
+        layer_type,
       })
       .returning("*");
 
@@ -201,6 +203,7 @@ exports.update = async (req, res) => {
     description,
     table_name,
     file_type,
+    layer_type,
   } = req.body;
   const id = req.params.id;
 
@@ -359,6 +362,7 @@ exports.update = async (req, res) => {
         name,
         description,
         table_name,
+        layer_type,
         updated_at: trx.fn.now(),
       });
 
@@ -730,6 +734,7 @@ async function layersResource(layer, depth = 0) {
     name: layer.name,
     description: layer.description,
     table_name: layer.table_name,
+    layer_type: layer.layer_type,
     data,
     created_at: layer.created_at,
     updated_at: layer.updated_at,
