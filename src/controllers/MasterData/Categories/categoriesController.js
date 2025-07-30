@@ -12,23 +12,28 @@ const categoriesResource = require("../../../resources/Categories/categoriesReso
 
 exports.index = async (req, res) => {
   try {
-    const { search } = req.query;
+    const { search, with_trashed } = req.query;
 
     // 1. Bangun query dasar
     let query = knex("workspace_categories as c")
       .select("c.id", "c.label", "c.deleted_at", "c.created_at", "c.updated_at")
       .orderBy("c.created_at", "desc");
 
-    // 2. Tambahkan search jika ada
+    // 2. Filter hanya data yang belum dihapus jika with_trashed != 1
+    if (with_trashed !== "1") {
+      query.whereNull("c.deleted_at");
+    }
+
+    // 3. Tambahkan search jika ada
     applySearch(query, search, ["c.label"]);
 
-    // 3. Tambahkan pagination
+    // 4. Tambahkan pagination
     const paginationInfo = applyPagination(query, req.query);
 
-    // 4. Jalankan query & hitung total
+    // 5. Jalankan query & hitung total
     const result = await formatPaginationResult(query, paginationInfo, knex);
 
-    // 5. Handle jika data kosong
+    // 6. Handle jika data kosong
     if (result.data.length === 0) {
       const response = new WithoutDataResource(
         200,
@@ -39,12 +44,12 @@ exports.index = async (req, res) => {
       return res.status(200).json(response.toResponse());
     }
 
-    // 6. Map data melalui categoriesResource
+    // 7. Map data melalui categoriesResource
     const serializedData = await Promise.all(
       result.data.map((categories) => categoriesResource(categories))
     );
 
-    // 7. Kirim respons sukses
+    // 8. Kirim respons sukses
     const response = new WithDataResource(
       200,
       "SUCCESS_GET_DATA",
