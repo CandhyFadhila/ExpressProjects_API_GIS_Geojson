@@ -72,21 +72,25 @@ exports.store = async (req, res) => {
 
     for (const file of req.files) {
       const allowedTypes = ["application/zip", "application/x-zip-compressed"];
-      if (!allowedTypes.includes(file.mimetype)) {
+      const isZipMime = allowedTypes.includes(file.mimetype);
+      const isZipExtension =
+        path.extname(file.originalname).toLowerCase() === ".zip";
+
+      if (!isZipMime || !isZipExtension) {
         const response = new WithoutDataResource(
           400,
           "INVALID_FILE_TYPE",
           "Tipe Dokumen Salah",
-          "File yang diunggah harus berformat .zip dan berisi shapefile atau geojson."
+          "File yang diunggah harus berformat .zip dan berisi shapefile."
         );
         return res.status(400).json(response.toResponse());
       }
-      if (file.size > 20 * 1024 * 1024) {
+      if (file.size > 50 * 1024 * 1024) {
         const response = new WithoutDataResource(
           400,
           "FILE_TOO_LARGE",
           "Ukuran Dokumen Terlalu Besar",
-          "Ukuran maksimal tiap file adalah 20MB."
+          "Ukuran maksimal tiap file adalah 50MB."
         );
         return res.status(400).json(response.toResponse());
       }
@@ -113,7 +117,53 @@ exports.store = async (req, res) => {
 
     // 5. Jika tipe file 'shp', ekstrak dan unggah shapefile
     if (file_type === "shp") {
-      await handleShapefileUpload(filePath, table_name, newLayer.id);
+      // 5a. Ekstrak isi ZIP untuk validasi file shapefile
+      const { extractPath, fileList } = await extractZipShapefile(filePath);
+
+      // Ambil hanya file .shp, .shx, .dbf dan abaikan folder / file lain
+      const validExtensions = [".shp", ".shx", ".dbf"];
+      const shapefileComponents = fileList.filter((file) => {
+        const ext = path.extname(file).toLowerCase();
+        const base = path.basename(file);
+        return (
+          validExtensions.includes(ext) &&
+          !file.includes("__MACOSX") &&
+          !base.startsWith("._")
+        );
+      });
+
+      const foundExtensions = shapefileComponents.map((file) =>
+        path.extname(file).toLowerCase()
+      );
+
+      const hasSHP = foundExtensions.includes(".shp");
+      const hasSHX = foundExtensions.includes(".shx");
+      const hasDBF = foundExtensions.includes(".dbf");
+
+      if (!(hasSHP && hasSHX && hasDBF)) {
+        // Bersihkan folder temp jika tidak valid
+        try {
+          fs.rmSync(extractPath, { recursive: true, force: true });
+        } catch (err) {
+          logger.warn(
+            `| Layers | - Gagal menghapus folder temp saat validasi gagal: ${err.message}`
+          );
+        }
+
+        await trx.rollback();
+        const response = new WithoutDataResource(
+          400,
+          "SHP_NOT_COMPLETE",
+          "File Shapefile Tidak Lengkap",
+          "File ZIP harus memuat file .shp, .shx, dan .dbf agar valid sebagai shapefile."
+        );
+        return res.status(400).json(response.toResponse());
+      }
+
+      // Ambil file .shp utama dari komponen valid
+      const shpFile = shapefileComponents.find((file) => file.endsWith(".shp"));
+
+      await handleShapefileUpload(shpFile, table_name, newLayer.id);
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
     await trx.commit();
@@ -144,8 +194,14 @@ exports.store = async (req, res) => {
 
 exports.update = async (req, res) => {
   const trx = await knex.transaction();
-  const { workspace_id, parent_layer_id, name, description, table_name } =
-    req.body;
+  const {
+    workspace_id,
+    parent_layer_id,
+    name,
+    description,
+    table_name,
+    file_type,
+  } = req.body;
   const id = req.params.id;
 
   try {
@@ -209,7 +265,7 @@ exports.update = async (req, res) => {
           400,
           "INVALID_FILE_TYPE",
           "Tipe File Tidak Valid",
-          "File yang diunggah harus berformat .zip dan berisi shapefile atau geojson."
+          "File yang diunggah harus berformat .zip dan berisi shapefile."
         );
         return res.status(400).json(response.toResponse());
       }
@@ -237,7 +293,57 @@ exports.update = async (req, res) => {
       const pathRoot = path.resolve(__dirname, "../../");
       const filePath = path.join(pathRoot, "public", relativePath);
 
-      await handleShapefileUpload(filePath, table_name);
+      if (file_type === "shp") {
+        // 5a. Ekstrak isi ZIP untuk validasi file shapefile
+        const { extractPath, fileList } = await extractZipShapefile(filePath);
+
+        // Ambil hanya file .shp, .shx, .dbf dan abaikan folder / file lain
+        const validExtensions = [".shp", ".shx", ".dbf"];
+        const shapefileComponents = fileList.filter((file) => {
+          const ext = path.extname(file).toLowerCase();
+          const base = path.basename(file);
+          return (
+            validExtensions.includes(ext) &&
+            !file.includes("__MACOSX") &&
+            !base.startsWith("._")
+          );
+        });
+
+        const foundExtensions = shapefileComponents.map((file) =>
+          path.extname(file).toLowerCase()
+        );
+
+        const hasSHP = foundExtensions.includes(".shp");
+        const hasSHX = foundExtensions.includes(".shx");
+        const hasDBF = foundExtensions.includes(".dbf");
+
+        if (!(hasSHP && hasSHX && hasDBF)) {
+          // Bersihkan folder temp jika tidak valid
+          try {
+            fs.rmSync(extractPath, { recursive: true, force: true });
+          } catch (err) {
+            logger.warn(
+              `| Layers | - Gagal menghapus folder temp saat validasi gagal: ${err.message}`
+            );
+          }
+
+          await trx.rollback();
+          const response = new WithoutDataResource(
+            400,
+            "SHP_NOT_COMPLETE",
+            "File Shapefile Tidak Lengkap",
+            "File ZIP harus memuat file .shp, .shx, dan .dbf agar valid sebagai shapefile."
+          );
+          return res.status(400).json(response.toResponse());
+        }
+
+        // Ambil file .shp utama dari komponen valid
+        const shpFile = shapefileComponents.find((file) =>
+          file.endsWith(".shp")
+        );
+
+        await handleShapefileUpload(shpFile, table_name, id);
+      } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
     }
 
     // 7. Finalisasi dokumen
@@ -631,18 +737,12 @@ async function layersResource(layer, depth = 0) {
   };
 }
 
-async function handleShapefileUpload(zipPath, tableName, layerId) {
-  const { extractPath, fileList } = await extractZipShapefile(zipPath);
-  const shpFile = fileList.find((file) => file.endsWith(".shp"));
-
-  if (!shpFile) throw new Error("File .shp tidak ditemukan di dalam ZIP.");
-
-  const shpFullPath = shpFile;
-
+async function handleShapefileUpload(shpFullPath, tableName, layerId) {
   await convertShapefileToPostgres(shpFullPath, tableName, "public", layerId);
 
   // Setelah konversi selesai, hapus folder temp
   try {
+    const extractPath = path.dirname(shpFullPath);
     fs.rmSync(extractPath, { recursive: true, force: true });
     logger.info(
       `| handleShapefileUpload | - Folder temp ${extractPath} berhasil dihapus.`
