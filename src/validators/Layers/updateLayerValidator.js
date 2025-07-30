@@ -50,8 +50,7 @@ exports.updateLayerValidator = [
     .withMessage("Deskripsi harus berupa teks."),
 
   body("file_type")
-    .notEmpty()
-    .withMessage("Tipe file tidak boleh kosong.")
+    .optional()
     .isIn(["shp", "geojson"])
     .withMessage("File yang dapat diunggah hanya shapefile atau GeoJSON."),
 

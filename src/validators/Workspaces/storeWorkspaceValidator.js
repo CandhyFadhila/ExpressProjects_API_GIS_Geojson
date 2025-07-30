@@ -10,7 +10,18 @@ exports.storeWorkspaceValidator = [
     .withMessage("Judul workspace harus berupa teks.")
     .bail()
     .isLength({ max: 255 })
-    .withMessage("Judul workspace maksimal 255 karakter."),
+    .withMessage("Judul workspace maksimal 255 karakter.")
+    .bail()
+    .custom(async (value) => {
+      const exists = await knex("workspaces")
+        .where("title", value)
+        .whereNull("deleted_at")
+        .first();
+      if (exists) {
+        throw new Error("Judul workspace ini sudah digunakan oleh workspace lain.");
+      }
+      return true;
+    }),
 
   body("description")
     .notEmpty()
