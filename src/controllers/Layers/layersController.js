@@ -352,7 +352,29 @@ exports.update = async (req, res) => {
     // 7. Finalisasi dokumen
     const document_id = newDocId || finalDocId;
 
-    // 8. Update ke database
+    // 8. Rename tabel fisik jika nama table_name berubah (dan tidak mengganti file)
+    const oldTableName = existing.table_name;
+    if (oldTableName !== table_name && !(req.files && req.files.length > 0)) {
+      const rawRenameQuery = `ALTER TABLE "${oldTableName}" RENAME TO "${table_name}"`;
+      try {
+        await trx.raw(rawRenameQuery);
+        logger.info(
+          `| Layers | - Tabel ${oldTableName} berhasil di-rename menjadi ${table_name}`
+        );
+      } catch (err) {
+        await trx.rollback();
+        logger.error(`| Layers | - Gagal rename tabel: ${err.message}`);
+        const response = new WithoutDataResource(
+          500,
+          "SERVER_ERROR",
+          "Server Sedang Error",
+          "Terjadi kesalahan pada sistem. Silakan coba lagi nanti."
+        );
+        return res.status(500).json(response.toResponse());
+      }
+    }
+
+    // 9. Update ke database
     await trx("layers")
       .where("id", id)
       .update({
@@ -366,7 +388,7 @@ exports.update = async (req, res) => {
         updated_at: trx.fn.now(),
       });
 
-    // 9. Commit
+    // 10. Commit
     await trx.commit();
 
     const saved = await knex("layers").where("id", id).first();
