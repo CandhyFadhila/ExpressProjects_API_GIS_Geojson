@@ -561,6 +561,7 @@ exports.updateShapefileData = async (req, res) => {
   }
 };
 
+// TODO: Masalah pada data => harusnya object bukan array
 async function layersResource(layer, depth = 0) {
   const MAX_DEPTH = 3;
   const workspace = layer.workspace_id

@@ -19,7 +19,7 @@ exports.storeWorkspaceValidator = [
     .isString()
     .withMessage("Deskripsi workspace harus berupa teks."),
 
-  body("category_id")
+  body("workspace_category_id")
     .notEmpty()
     .withMessage("Kategori workspace wajib dipilih.")
     .bail()

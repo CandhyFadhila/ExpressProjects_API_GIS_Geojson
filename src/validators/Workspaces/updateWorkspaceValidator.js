@@ -19,7 +19,7 @@ exports.updateWorkspaceValidator = [
     .isString()
     .withMessage("Deskripsi workspace harus berupa teks."),
 
-  body("category_id")
+  body("workspace_category_id")
     .optional()
     .isInt()
     .withMessage("Kategori workspace harus berupa angka.")

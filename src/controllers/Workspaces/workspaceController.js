@@ -85,7 +85,7 @@ exports.index = async (req, res) => {
 
 exports.store = async (req, res) => {
   const trx = await knex.transaction();
-  const { category_id, title, description } = req.body;
+  const { workspace_category_id, title, description } = req.body;
 
   try {
     // 1. Validasi dengan express-validator
@@ -169,7 +169,7 @@ exports.store = async (req, res) => {
     // 5. Simpan workspace
     const [newWorkspace] = await trx("workspaces")
       .insert({
-        category_id,
+        category_id: workspace_category_id,
         document_id,
         title,
         description,
@@ -249,7 +249,7 @@ exports.show = async (req, res) => {
 
 exports.update = async (req, res) => {
   const trx = await knex.transaction();
-  const { title, description, category_id, delete_document_ids } = req.body;
+  const { title, description, workspace_category_id, delete_document_ids } = req.body;
   const id = req.params.id;
 
   try {
@@ -322,7 +322,7 @@ exports.update = async (req, res) => {
     await trx("workspaces").where("id", id).update({
       title,
       description,
-      category_id,
+      category_id: workspace_category_id,
       document_id,
       updated_at: trx.fn.now(),
     });
