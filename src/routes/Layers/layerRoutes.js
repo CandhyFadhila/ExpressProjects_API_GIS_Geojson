@@ -12,6 +12,13 @@ const authMiddleware = require("../../middlewares/authMiddleware");
 const rateLimiter = require("../../middlewares/rateLimitMiddleware");
 const upload = require("../../middlewares/multerMiddleware");
 
+router.get(
+  "/load/:workspace_id",
+  rateLimiter,
+  authMiddleware,
+  layersController.getLayersbyWorkspaceId
+);
+
 router.post(
   "/create",
   rateLimiter,

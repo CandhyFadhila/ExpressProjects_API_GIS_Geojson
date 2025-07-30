@@ -24,8 +24,14 @@ const serializeLayer = require("../../resources/Layers/serializeLayer");
 
 exports.store = async (req, res) => {
   const trx = await knex.transaction();
-  const { workspace_id, parent_layer_id, name, description, table_name } =
-    req.body;
+  const {
+    workspace_id,
+    parent_layer_id,
+    name,
+    description,
+    table_name,
+    file_type,
+  } = req.body;
 
   try {
     // 1. Validasi dengan express-validator
@@ -105,8 +111,10 @@ exports.store = async (req, res) => {
       })
       .returning("*");
 
-    // Ekstrak & konversi shapefile
-    await handleShapefileUpload(filePath, table_name, newLayer.id);
+    // 5. Jika tipe file 'shp', ekstrak dan unggah shapefile
+    if (file_type === "shp") {
+      await handleShapefileUpload(filePath, table_name, newLayer.id);
+    } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
     await trx.commit();
 
@@ -322,7 +330,64 @@ exports.destroy = async (req, res) => {
   }
 };
 
-// TODO: ambil api untuk get layers by workspace id
+exports.getLayersbyWorkspaceId = async (req, res) => {
+  const { workspace_id } = req.params;
+
+  try {
+    // 1. Ambil semua layer aktif berdasarkan workspace_id
+    const layers = await knex("layers")
+      .where("workspace_id", workspace_id)
+      .whereNull("deleted_at")
+      .orderBy("created_at", "desc");
+
+    // Jika tidak ada layer sama sekali
+    if (!layers || layers.length === 0) {
+      const response = new WithoutDataResource(
+        200,
+        "DATA_NOT_FOUND",
+        "Data Tidak Ditemukan",
+        `Tidak ada layer yang tersedia di workspace ID ${workspace_id}`
+      );
+      return res.status(200).json(response.toResponse());
+    }
+
+    // 2. Serialize setiap layer dengan layersResource
+    const results = [];
+    for (const layer of layers) {
+      const serialized = await layersResource(layer);
+      results.push(serialized);
+    }
+
+    // 3. Jika semua layer tidak memiliki shapefile (data kosong)
+    if (results.every((layer) => layer.data.length === 0)) {
+      const response = new WithoutDataResource(
+        404,
+        "SHAPEFILES_NOT_FOUND",
+        "Shapefile Tidak Ditemukan",
+        `Workspace ID ${workspace_id} memiliki layer, tetapi belum ada shapefile yang diunggah.`
+      );
+      return res.status(404).json(response.toResponse());
+    }
+
+    const response = new WithDataResource(
+      200, // HTTP Status Code: Success
+      "SUCCESS_GET_LAYERS",
+      "Berhasil Mengambil Data Layer",
+      `Berhasil mengambil semua layer untuk workspace ID ${workspace_id}`,
+      results
+    );
+    return res.status(200).json(response.toResponse());
+  } catch (error) {
+    logger.error(`| Layers | - Error getLayersbyWorkspaceId: ${error.message}`);
+    const response = new WithoutDataResource(
+      500,
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem. Silakan coba lagi nanti."
+    );
+    return res.status(500).json(response.toResponse());
+  }
+};
 
 async function layersResource(layer, depth = 0) {
   const MAX_DEPTH = 3;

@@ -517,13 +517,6 @@ exports.updateShapefileData = async (req, res) => {
     const documentIds = uploadedDocuments.map((doc) => doc.id);
     const documentIdsJson = JSON.stringify(documentIds);
 
-    // TODO: Buatkan tabel khusus aja untuk menyimpan id table_name dan id document berupa array []
-    // Nama tabel = document_{table_name}
-    // Nama kolom = id, table_name_id, additional_document dalam JSONB
-    // Nullable aja
-    // Auto create table ini ketika input shapefile
-    // Setup delete table ini ketika delete workspace
-
     if (workspaceLayerShapefileExists) {
       await trx("workspace_layer_shapefiles")
         .where("workspace_layer_id", layer_id)
