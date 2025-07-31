@@ -9,7 +9,8 @@ async function convertShapefileToPostgres(
   shpFilePath,
   tableName,
   schemaName = "public",
-  layerId = null
+  layerId = null,
+  withExplanation = false
 ) {
   // Gunakan path lengkap ke ogr2ogr.exe
   const { ogrCmd } = getOgrConfigByEnv(shpFilePath, tableName, schemaName);
@@ -59,8 +60,12 @@ async function convertShapefileToPostgres(
       await clientCheck.end();
     }
 
-    // 3. Tambahkan kolom + constraint
+    // 3. Tambahkan kolom
     await alterTableForMeta(schemaName, tableName);
+
+    if (withExplanation) {
+      await addExplanationColumnsIfNeeded(schemaName, tableName);
+    }
 
     // 4. Perbaiki panjang kolom jika perlu
     await checkAndFixCharacterVaryingLength(schemaName, tableName);
@@ -110,11 +115,66 @@ async function alterTableForMeta(schemaName, tableName) {
     `);
 
     logger.info(
-      `| alterTable | Kolom layer_id dan document_ids berhasil ditambahkan pada ${schemaName}.${tableName}`
+      `| alterTableForMeta | Kolom layer_id dan document_ids berhasil ditambahkan pada ${schemaName}.${tableName}`
     );
   } catch (err) {
     throw new Error(
       `Gagal menambahkan kolom/constraint ke tabel: ${err.message}`
+    );
+  } finally {
+    await client.end();
+  }
+}
+
+async function addExplanationColumnsIfNeeded(schemaName, tableName) {
+  const client = await getPgClientByEnv();
+  const columnsToCheck = ["parapihakb", "permasalah", "tindaklanj", "hasil"];
+
+  try {
+    const res = await client.query(
+      `
+      SELECT LOWER(column_name) as column_name
+      FROM information_schema.columns
+      WHERE table_schema = $1
+        AND table_name = $2
+    `,
+      [schemaName, tableName]
+    );
+
+    const existingColumns = res.rows.map((row) => row.column_name);
+
+    const columnsToAdd = columnsToCheck.filter(
+      (col) => !existingColumns.includes(col.toLowerCase())
+    );
+
+    for (const col of columnsToAdd) {
+      try {
+        await client.query(`
+          ALTER TABLE "${schemaName}"."${tableName}"
+          ADD COLUMN "${col}" TEXT;
+        `);
+        logger.info(
+          `| addExplanationColumnsIfNeeded | Kolom ${col} berhasil ditambahkan ke ${schemaName}.${tableName}`
+        );
+      } catch (colErr) {
+        logger.warn(
+          `| addExplanationColumnsIfNeeded | Gagal menambahkan kolom ${col} ke ${schemaName}.${tableName}: ${colErr.message}`
+        );
+      }
+    }
+
+    // Jika tidak ada kolom yang ditambahkan
+    if (columnsToAdd.length === 0) {
+      logger.info(
+        `| addExplanationColumnsIfNeeded | Semua kolom sudah ada di ${schemaName}.${tableName}, tidak ada yang ditambahkan.`
+      );
+    }
+  } catch (err) {
+    logger.error(
+      `| addExplanationColumnsIfNeeded | Error utama: ${err.message}`
+    );
+    throw new Error(
+      `Gagal memproses pengecekan dan penambahan kolom penjelasan`
     );
   } finally {
     await client.end();

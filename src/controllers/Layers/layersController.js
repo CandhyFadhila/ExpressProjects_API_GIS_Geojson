@@ -32,6 +32,7 @@ exports.store = async (req, res) => {
     table_name,
     file_type,
     layer_type,
+    with_explanation,
   } = req.body;
 
   try {
@@ -114,6 +115,7 @@ exports.store = async (req, res) => {
         description,
         table_name,
         layer_type,
+        with_explanation,
       })
       .returning("*");
 
@@ -165,7 +167,7 @@ exports.store = async (req, res) => {
       // Ambil file .shp utama dari komponen valid
       const shpFile = shapefileComponents.find((file) => file.endsWith(".shp"));
 
-      await handleShapefileUpload(shpFile, table_name, newLayer.id);
+      await handleShapefileUpload(shpFile, table_name, newLayer.id, with_explanation);
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
     await trx.commit();
@@ -758,6 +760,7 @@ async function layersResource(layer, depth = 0) {
     description: layer.description,
     table_name: layer.table_name,
     layer_type: layer.layer_type,
+    with_explanation: layer.with_explanation,
     data,
     created_at: layer.created_at,
     updated_at: layer.updated_at,
@@ -830,6 +833,7 @@ async function layersStoreUpdateResource(layer, depth = 0) {
     description: layer.description,
     table_name: layer.table_name,
     layer_type: layer.layer_type,
+    with_explanation: layer.with_explanation,
     data,
     created_at: layer.created_at,
     updated_at: layer.updated_at,
@@ -837,8 +841,8 @@ async function layersStoreUpdateResource(layer, depth = 0) {
   };
 }
 
-async function handleShapefileUpload(shpFullPath, tableName, layerId) {
-  await convertShapefileToPostgres(shpFullPath, tableName, "public", layerId);
+async function handleShapefileUpload(shpFullPath, tableName, layerId, withExplanation = false) {
+  await convertShapefileToPostgres(shpFullPath, tableName, "public", layerId, withExplanation);
 
   // Setelah konversi selesai, hapus folder temp
   try {

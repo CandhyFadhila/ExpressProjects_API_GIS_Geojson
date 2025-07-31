@@ -42,7 +42,7 @@ exports.storeLayerValidator = [
     .withMessage("Nama layer maksimal 255 karakter."),
 
   body("description")
-    .optional({ nullable: true })
+    .optional()
     .isString()
     .withMessage("Deskripsi harus berupa teks."),
 
@@ -57,6 +57,15 @@ exports.storeLayerValidator = [
     .withMessage("Tipe layer tidak boleh kosong.")
     .isIn(["fill", "line"])
     .withMessage("Tipe layer yang boleh digunakan hanya fill atau line."),
+
+  body("with_explanation")
+    .optional()
+    .bail()
+    .customSanitizer((value) => {
+      return String(value).toLowerCase() === "true";
+    })
+    .isBoolean()
+    .withMessage("With explanation harus bernilai boolean (true atau false)."),
 
   body("table_name")
     .notEmpty()
