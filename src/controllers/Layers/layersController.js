@@ -297,7 +297,7 @@ exports.update = async (req, res) => {
       [table_name]
     );
     const existsInDb = resultTableNameExists.rows[0]?.exists !== null;
-    if (existsInDb && oldTableName !== table_name) {
+    if (existsInDb) {
       await trx.rollback();
       const response = new WithoutDataResource(
         400,
