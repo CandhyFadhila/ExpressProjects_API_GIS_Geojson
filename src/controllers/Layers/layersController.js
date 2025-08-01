@@ -576,34 +576,6 @@ exports.updateShapefileData = async (req, res) => {
       parsedProperties = JSON.parse(properties);
     }
 
-    // 1.1 Validasi nama kolom terhadap tabel sesuai dengan properti
-    const tableColumnsRes = await trx.raw(
-      `
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = ?
-    `,
-      [table_name]
-    );
-
-    const validColumns = tableColumnsRes.rows.map((r) => r.column_name);
-    const invalidFields = Object.keys(parsedProperties).filter(
-      (key) => key !== "id" && !validColumns.includes(key)
-    );
-    if (invalidFields.length > 0) {
-      await trx.rollback();
-      const response = new WithoutDataResource(
-        400,
-        "INVALID_COLUMNS",
-        "Nama kolom tidak valid",
-        `Kolom berikut tidak ditemukan di tabel ${table_name}: ${invalidFields.join(
-          ", "
-        )}`
-      );
-      return res.status(400).json(response.toResponse());
-    }
-
     // 2. Update data berdasarkan ID dalam properties
     const { id, ...updateFields } = parsedProperties;
 
