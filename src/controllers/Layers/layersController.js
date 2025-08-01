@@ -167,7 +167,12 @@ exports.store = async (req, res) => {
       // Ambil file .shp utama dari komponen valid
       const shpFile = shapefileComponents.find((file) => file.endsWith(".shp"));
 
-      await handleShapefileUpload(shpFile, table_name, newLayer.id, with_explanation);
+      await handleShapefileUpload(
+        shpFile,
+        table_name,
+        newLayer.id,
+        with_explanation
+      );
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
     await trx.commit();
@@ -565,6 +570,35 @@ exports.updateShapefileData = async (req, res) => {
       parsedProperties = JSON.parse(properties);
     }
 
+    // 1.1 Validasi nama kolom terhadap tabel sesuai dengan properti
+    const tableColumnsRes = await trx.raw(
+      `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = ?
+    `,
+      [table_name]
+    );
+
+    const validColumns = tableColumnsRes.rows.map((r) => r.column_name);
+    const invalidFields = Object.keys(parsedProperties).filter(
+      (key) => key !== "id" && !validColumns.includes(key)
+    );
+
+    if (invalidFields.length > 0) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "INVALID_COLUMNS",
+        "Nama kolom tidak valid",
+        `Kolom berikut tidak ditemukan di tabel ${table_name}: ${invalidFields.join(
+          ", "
+        )}`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
     // 2. Update data berdasarkan ID dalam properties
     const { id, ...updateFields } = parsedProperties;
     const updated = await trx(table_name).where("id", id).update(updateFields);
@@ -841,8 +875,19 @@ async function layersStoreUpdateResource(layer, depth = 0) {
   };
 }
 
-async function handleShapefileUpload(shpFullPath, tableName, layerId, withExplanation = false) {
-  await convertShapefileToPostgres(shpFullPath, tableName, "public", layerId, withExplanation);
+async function handleShapefileUpload(
+  shpFullPath,
+  tableName,
+  layerId,
+  withExplanation = false
+) {
+  await convertShapefileToPostgres(
+    shpFullPath,
+    tableName,
+    "public",
+    layerId,
+    withExplanation
+  );
 
   // Setelah konversi selesai, hapus folder temp
   try {
