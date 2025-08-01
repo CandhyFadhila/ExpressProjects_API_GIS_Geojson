@@ -589,7 +589,9 @@ exports.updateShapefileData = async (req, res) => {
         400,
         "UNAUTHORIZED_COLUMNS",
         "Terdapat kolom yang tidak diizinkan untuk diubah",
-        `Kolom berikut tidak boleh diubah: ${disallowedFields.join(", ")}`
+        `Hanya kolom berikut yang diperbolehkan untuk diubah: ${allowedUpdateColumns.join(
+          ", "
+        )}`
       );
       return res.status(400).json(response.toResponse());
     }
@@ -600,7 +602,9 @@ exports.updateShapefileData = async (req, res) => {
         allowedUpdateColumns.includes(key)
       )
     );
-    const updated = await trx(table_name).where("id", id).update(filteredUpdateFields);
+    const updated = await trx(table_name)
+      .where("id", id)
+      .update(filteredUpdateFields);
     if (updated === 0) {
       await trx.rollback();
       const response = new WithoutDataResource(
