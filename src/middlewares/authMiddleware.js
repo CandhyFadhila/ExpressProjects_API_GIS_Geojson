@@ -69,7 +69,7 @@ const authMiddleware = async (req, res, next) => {
       if (!user || !user.last_login) {
         const response = new WithoutDataResource(
           401,
-          "USER_NOT_FOUND",
+          "USER_NOT_FOUND_OR_NOT_LOGGED_IN",
           "Akses ditolak",
           "Pengguna tidak ditemukan atau belum login."
         );
