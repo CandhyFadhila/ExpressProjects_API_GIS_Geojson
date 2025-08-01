@@ -1,7 +1,8 @@
 const jwt = require("jsonwebtoken");
 const WithoutDataResource = require("../resources/WithoutDataResource");
-const { isTokenBlacklisted } = require("../utils/tokenBlacklist");
+const { isTokenBlacklisted, blacklistToken } = require("../utils/tokenBlacklist");
 const logger = require("../utils/logger");
+const knex = require("../config/database");
 
 // Middleware untuk autentikasi menggunakan JWT
 const authMiddleware = async (req, res, next) => {
@@ -35,7 +36,7 @@ const authMiddleware = async (req, res, next) => {
   }
 
   // Verifikasi token
-  jwt.verify(token, "secretkey", (err, decoded) => {
+  jwt.verify(token, "secretkey", async (err, decoded) => {
     if (err && err.name === "TokenExpiredError") {
       const response = new WithoutDataResource(
         401, // HTTP Status Code: Unauthorized
@@ -60,14 +61,56 @@ const authMiddleware = async (req, res, next) => {
       return res.status(401).json(response.toResponse());
     }
 
-    // Jika token valid, simpan informasi user di request untuk digunakan di route selanjutnya
-    req.userId = decoded.userId;
-    logger.info(
-      `| Auth | - Token valid for userId: ${
-        decoded.userId
-      }, at ${new Date().toISOString()}`
-    );
-    next();
+    // Fungsi untuk cek last_login. jika lebih dari 3 hari, maka login ulang dan token di blacklist
+    const userId = decoded.userId;
+
+    try {
+      const user = await knex("users").where({ id: userId }).first();
+      if (!user || !user.last_login) {
+        const response = new WithoutDataResource(
+          401,
+          "USER_NOT_FOUND",
+          "Akses ditolak",
+          "Pengguna tidak ditemukan atau belum login."
+        );
+        return res.status(401).json(response.toResponse());
+      }
+
+      const lastLogin = new Date(user.last_login);
+      const now = new Date();
+      const diffInDays = Math.floor((now - lastLogin) / (1000 * 60 * 60 * 24));
+
+      if (diffInDays > 3) {
+        // Masukkan token ke blacklist Redis
+        await blacklistToken(token, 86400); // expired dalam 1 hari
+
+        const response = new WithoutDataResource(
+          401,
+          "LOGIN_EXPIRED",
+          "Akses ditolak",
+          "Anda belum login dalam 3 hari terakhir. Silakan login kembali."
+        );
+        logger.info(`| Auth | - Token valid tapi user idle > 3 hari`);
+        return res.status(401).json(response.toResponse());
+      }
+
+      req.userId = userId;
+      logger.info(
+        `| Auth | - Token valid for userId: ${
+          decoded.userId
+        }, at ${new Date().toISOString()}`
+      );
+      next();
+    } catch (error) {
+      logger.error(`| Auth | - Gagal mengecek last_login: ${error.message}`);
+      const response = new WithoutDataResource(
+        500, // HTTP Status Code: Internal Server Error
+        "SERVER_ERROR",
+        "Server Sedang Error",
+        "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
+      );
+      res.status(500).json(response.toResponse());
+    }
   });
 };
 
