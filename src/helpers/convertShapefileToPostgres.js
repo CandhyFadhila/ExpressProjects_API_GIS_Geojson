@@ -128,18 +128,12 @@ async function alterTableForMeta(schemaName, tableName) {
 
 async function addExplanationColumnsIfNeeded(schemaName, tableName) {
   const client = await getPgClientByEnv();
-  const columnsToCheck = ["parapihakb", "permasalah", "tindaklanj", "hasil"];
-  const capitalizedColumnsToAdd = {
-    parapihakb: "PARAPIHAKB",
-    permasalah: "PERMASALAH",
-    tindaklanj: "TINDAKLANJ",
-    hasil: "HASIL",
-  };
+  const columnsToCheck = ["PARAPIHAKB", "PERMASALAH", "TINDAKLANJ", "HASIL"];
 
   try {
     const res = await client.query(
       `
-      SELECT LOWER(column_name) as column_name
+      SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = $1
         AND table_name = $2
@@ -150,23 +144,21 @@ async function addExplanationColumnsIfNeeded(schemaName, tableName) {
     const existingColumns = res.rows.map((row) => row.column_name);
 
     const columnsToAdd = columnsToCheck.filter(
-      (col) => !existingColumns.includes(col.toLowerCase())
+      (col) => !existingColumns.includes(col)
     );
 
     for (const col of columnsToAdd) {
-      const capitalizedCol = capitalizedColumnsToAdd[col] || col.toUpperCase();
-
       try {
         await client.query(`
           ALTER TABLE "${schemaName}"."${tableName}"
-          ADD COLUMN "${capitalizedCol}" TEXT;
+          ADD COLUMN "${col}" TEXT;
         `);
         logger.info(
-          `| addExplanationColumnsIfNeeded | Kolom ${capitalizedCol} berhasil ditambahkan ke ${schemaName}.${tableName}`
+          `| addExplanationColumnsIfNeeded | Kolom ${col} berhasil ditambahkan ke ${schemaName}.${tableName}`
         );
       } catch (colErr) {
         logger.warn(
-          `| addExplanationColumnsIfNeeded | Gagal menambahkan kolom ${capitalizedCol} ke ${schemaName}.${tableName}: ${colErr.message}`
+          `| addExplanationColumnsIfNeeded | Gagal menambahkan kolom ${col} ke ${schemaName}.${tableName}: ${colErr.message}`
         );
       }
     }
