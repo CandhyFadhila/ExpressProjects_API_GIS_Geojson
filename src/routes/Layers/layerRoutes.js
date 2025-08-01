@@ -23,7 +23,7 @@ router.get(
 );
 
 router.patch(
-  "/update-shp-geo-data",
+  "/update-field",
   rateLimiter,
   authMiddleware,
   upload.array("file", 5),
