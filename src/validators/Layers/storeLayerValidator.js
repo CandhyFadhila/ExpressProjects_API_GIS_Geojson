@@ -79,30 +79,4 @@ exports.storeLayerValidator = [
     .withMessage(
       "Nama tabel hanya boleh mengandung huruf, angka, dan underscore."
     )
-    .bail()
-    .custom(async (value) => {
-      // Cek apakah sudah pernah dipakai di layers
-      const usedInLayers = await knex("layers")
-        .where("table_name", value)
-        .whereNull("deleted_at")
-        .first();
-      if (usedInLayers) {
-        throw new Error("Nama tabel sudah digunakan oleh layer lain.");
-      }
-
-      // Cek apakah sudah ada di DB fisik
-      const rawQuery = `
-        SELECT to_regclass('${value}') as exists
-      `;
-      const result = await knex.raw(rawQuery);
-      const existsInDb = result.rows[0].exists !== null;
-
-      if (existsInDb) {
-        throw new Error(
-          "Nama tabel sudah ada di database. Silakan gunakan nama lain."
-        );
-      }
-
-      return true;
-    }),
 ];

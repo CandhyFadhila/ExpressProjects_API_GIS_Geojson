@@ -52,6 +52,38 @@ exports.store = async (req, res) => {
       return res.status(400).json(response.toResponse());
     }
 
+    // 1.1 Validasi manual duplikat table_name
+    const usedInLayers = await trx("layers")
+      .where("table_name", table_name)
+      .whereNull("deleted_at")
+      .first();
+    if (usedInLayers) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "DUPLICATE_LAYER_NAME",
+        "Nama Tabel Telah Digunakan",
+        "Nama tabel sudah digunakan oleh layer lain. Silakan gunakan nama lain."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    const resultTableNameExists = await trx.raw(
+      `SELECT to_regclass(?) AS exists`,
+      [table_name]
+    );
+    const existsInDb = resultTableNameExists.rows[0]?.exists !== null;
+    if (existsInDb) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "DUPLICATE_LAYER_NAME",
+        "Nama Tabel Sudah Ada di Database",
+        "Nama tabel sudah ada di database. Silakan gunakan nama lain."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
     // 2. Validasi manual untuk files (req.files)
     if (!req.files || req.files.length === 0) {
       const response = new WithoutDataResource(
@@ -244,17 +276,34 @@ exports.update = async (req, res) => {
     }
 
     // 3. Cek duplikat table_name (kecuali dirinya sendiri)
-    const duplicate = await trx("layers")
+    const usedInLayers = await trx("layers")
       .where("table_name", table_name)
       .whereNull("deleted_at")
       .whereNot("id", id)
       .first();
-    if (duplicate) {
+    if (usedInLayers) {
+      await trx.rollback();
       const response = new WithoutDataResource(
         400,
-        "DUPLICATE_TABLE_NAME",
-        "Nama Tabel Duplikat",
-        `Nama tabel '${table_name}' sudah digunakan pada layer lain.`
+        "DUPLICATE_LAYER_NAME",
+        "Nama Tabel Telah Digunakan",
+        "Nama tabel sudah digunakan oleh layer lain. Silakan gunakan nama lain."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    const resultTableNameExists = await trx.raw(
+      `SELECT to_regclass(?) AS exists`,
+      [table_name]
+    );
+    const existsInDb = resultTableNameExists.rows[0]?.exists !== null;
+    if (existsInDb && oldTableName !== table_name) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "DUPLICATE_LAYER_NAME",
+        "Nama Tabel Sudah Ada di Database",
+        "Nama tabel sudah ada di database. Silakan gunakan nama lain."
       );
       return res.status(400).json(response.toResponse());
     }
@@ -476,8 +525,7 @@ exports.getLayersbyWorkspaceId = async (req, res) => {
     // 1. Ambil semua layer aktif berdasarkan workspace_id
     const layers = await knex("layers")
       .where("workspace_id", workspace_id)
-      .whereNull("deleted_at")
-      .orderBy("created_at", "desc");
+      .whereNull("deleted_at");
 
     // Jika tidak ada layer sama sekali
     if (!layers || layers.length === 0) {

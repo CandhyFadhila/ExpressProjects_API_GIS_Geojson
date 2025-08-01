@@ -68,40 +68,5 @@ exports.updateLayerValidator = [
     .matches(/^[a-zA-Z0-9_]+$/)
     .withMessage(
       "Nama tabel hanya boleh mengandung huruf, angka, dan underscore."
-    )
-    .bail()
-    .custom(async (value, { req }) => {
-      if (!value) return true;
-
-      const currentId = parseInt(req.params.id);
-
-      // 1. Cek apakah sudah digunakan di layer lain
-      const usedInOther = await knex("layers")
-        .where("table_name", value)
-        .whereNot("id", currentId)
-        .whereNull("deleted_at")
-        .first();
-
-      if (usedInOther) {
-        throw new Error("Nama tabel sudah digunakan oleh layer lain.");
-      }
-
-      // 2. Cek apakah tabel fisik ada di DB dan bukan milik current layer
-      const currentLayer = await knex("layers").where("id", currentId).first();
-      if (!currentLayer) {
-        throw new Error("Data layer tidak ditemukan.");
-      }
-
-      const result = await knex.raw(`SELECT to_regclass('${value}') as exists`);
-      const existsInDb = result.rows[0].exists !== null;
-
-      // Jika table_name diubah dan nama baru sudah ada di DB, tolak
-      if (value !== currentLayer.table_name && existsInDb) {
-        throw new Error(
-          "Nama tabel sudah ada di database. Silakan gunakan nama lain."
-        );
-      }
-
-      return true;
-    }),
+    ),
 ];
