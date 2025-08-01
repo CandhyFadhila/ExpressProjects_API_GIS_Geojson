@@ -531,6 +531,12 @@ exports.getLayersbyWorkspaceId = async (req, res) => {
 exports.updateShapefileData = async (req, res) => {
   const { table_name, layer_id, properties, delete_document_ids } = req.body;
   const trx = await knex.transaction();
+  const allowedUpdateColumns = [
+    "PARAPIHAKB",
+    "PERMASALAH",
+    "TINDAKLANJ",
+    "HASIL",
+  ];
 
   try {
     // 0. Validasi table_name ada di database
@@ -585,7 +591,6 @@ exports.updateShapefileData = async (req, res) => {
     const invalidFields = Object.keys(parsedProperties).filter(
       (key) => key !== "id" && !validColumns.includes(key)
     );
-
     if (invalidFields.length > 0) {
       await trx.rollback();
       const response = new WithoutDataResource(
@@ -601,7 +606,29 @@ exports.updateShapefileData = async (req, res) => {
 
     // 2. Update data berdasarkan ID dalam properties
     const { id, ...updateFields } = parsedProperties;
-    const updated = await trx(table_name).where("id", id).update(updateFields);
+
+    // 2.1 Validasi hanya kolom yang diizinkan
+    const disallowedFields = Object.keys(updateFields).filter(
+      (key) => !allowedUpdateColumns.includes(key)
+    );
+    if (disallowedFields.length > 0) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "UNAUTHORIZED_COLUMNS",
+        "Terdapat kolom yang tidak diizinkan untuk diubah",
+        `Kolom berikut tidak boleh diubah: ${disallowedFields.join(", ")}`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 2.2 Filter hanya kolom yang diizinkan untuk benar-benar diupdate
+    const filteredUpdateFields = Object.fromEntries(
+      Object.entries(updateFields).filter(([key]) =>
+        allowedUpdateColumns.includes(key)
+      )
+    );
+    const updated = await trx(table_name).where("id", id).update(filteredUpdateFields);
     if (updated === 0) {
       await trx.rollback();
       const response = new WithoutDataResource(
