@@ -61,14 +61,14 @@ async function convertShapefileToPostgres(
     }
 
     // 3. Tambahkan kolom
-    await alterTableForMeta(schemaName, tableName);
+    await alterTableForMeta(schemaName, tableName); //Required
 
     if (withExplanation) {
-      await addExplanationColumnsIfNeeded(schemaName, tableName);
+      await addExplanationColumnsIfNeeded(schemaName, tableName); //Required | Optional
     }
 
     // 4. Perbaiki panjang kolom jika perlu
-    await checkAndFixCharacterVaryingLength(schemaName, tableName);
+    // await checkAndFixCharacterVaryingLength(schemaName, tableName); //Optional
 
     // 5. Isi layer_id jika ada
     if (layerId) {

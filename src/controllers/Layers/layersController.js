@@ -275,37 +275,39 @@ exports.update = async (req, res) => {
       return res.status(200).json(response.toResponse());
     }
 
-    // 3. Cek duplikat table_name (kecuali dirinya sendiri)
-    const usedInLayers = await trx("layers")
-      .where("table_name", table_name)
-      .whereNull("deleted_at")
-      .whereNot("id", id)
-      .first();
-    if (usedInLayers) {
-      await trx.rollback();
-      const response = new WithoutDataResource(
-        400,
-        "DUPLICATE_LAYER_NAME",
-        "Nama Tabel Telah Digunakan",
-        "Nama tabel sudah digunakan oleh layer lain. Silakan gunakan nama lain."
-      );
-      return res.status(400).json(response.toResponse());
-    }
+    // 3. Validasi duplikat hanya jika properties table_name berubah
+    if (existing.table_name !== table_name) {
+      const usedInLayers = await trx("layers")
+        .where("table_name", table_name)
+        .whereNull("deleted_at")
+        .whereNot("id", id)
+        .first();
+      if (usedInLayers) {
+        await trx.rollback();
+        const response = new WithoutDataResource(
+          400,
+          "DUPLICATE_LAYER_NAME",
+          "Nama Tabel Telah Digunakan",
+          "Nama tabel sudah digunakan oleh layer lain. Silakan gunakan nama lain."
+        );
+        return res.status(400).json(response.toResponse());
+      }
 
-    const resultTableNameExists = await trx.raw(
-      `SELECT to_regclass(?) AS exists`,
-      [table_name]
-    );
-    const existsInDb = resultTableNameExists.rows[0]?.exists !== null;
-    if (existsInDb) {
-      await trx.rollback();
-      const response = new WithoutDataResource(
-        400,
-        "DUPLICATE_LAYER_NAME",
-        "Nama Tabel Sudah Ada di Database",
-        "Nama tabel sudah ada di database. Silakan gunakan nama lain."
+      const resultTableNameExists = await trx.raw(
+        `SELECT to_regclass(?) AS exists`,
+        [table_name]
       );
-      return res.status(400).json(response.toResponse());
+      const existsInDb = resultTableNameExists.rows[0]?.exists !== null;
+      if (existsInDb) {
+        await trx.rollback();
+        const response = new WithoutDataResource(
+          400,
+          "DUPLICATE_LAYER_NAME",
+          "Nama Tabel Sudah Ada di Database",
+          "Nama tabel sudah ada di database. Silakan gunakan nama lain."
+        );
+        return res.status(400).json(response.toResponse());
+      }
     }
 
     // 4. Ambil dokumen sebelumnya
