@@ -15,7 +15,8 @@ async function workspaceResource(workspace) {
   // Ambil semua layers milik workspace (soft delete-aware)
   const layers = await knex("layers")
     .where("workspace_id", workspace.id)
-    .whereNull("deleted_at");
+    .whereNull("deleted_at")
+    .orderBy("id", "asc");
 
   const serializedLayers = await Promise.all(
     layers.map((layer) => serializeLayer(layer))
