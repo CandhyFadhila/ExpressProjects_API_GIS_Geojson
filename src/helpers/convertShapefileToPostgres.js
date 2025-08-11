@@ -13,14 +13,16 @@ async function convertShapefileToPostgres(
   withExplanation = false
 ) {
   // Gunakan path lengkap ke ogr2ogr.exe
-  const { ogrCmd } = getOgrConfigByEnv(shpFilePath, tableName, schemaName);
+  const { ogrCmd, env } = getOgrConfigByEnv(shpFilePath, tableName, schemaName);
   logger.info(`| convertShapefile | Eksekusi perintah: ${ogrCmd}`);
 
   try {
     // 1. Eksekusi perintah ogr2ogr
     const { stdout, stderr } = await execAsync(ogrCmd, {
+      env,
       maxBuffer: 1024 * 1024 * 10,
-      timeout: 60000,
+      timeout: 120000,
+      windowsHide: true,
     });
 
     if (stderr) logger.warn(`| convertShapefile | STDERR: ${stderr}`);
@@ -112,6 +114,12 @@ async function alterTableForMeta(schemaName, tableName) {
     await client.query(`
       ALTER TABLE "${schemaName}"."${tableName}"
       ADD COLUMN IF NOT EXISTS document_ids JSONB DEFAULT '[]';
+    `);
+
+    // 3. Tambahkan kolom color jika belum ada
+    await client.query(`
+      ALTER TABLE "${schemaName}"."${tableName}"
+      ADD COLUMN IF NOT EXISTS color VARCHAR(9);
     `);
 
     logger.info(

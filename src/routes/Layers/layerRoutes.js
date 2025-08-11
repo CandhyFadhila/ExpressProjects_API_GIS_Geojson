@@ -59,4 +59,11 @@ router.delete(
   layersController.destroy
 );
 
+router.get(
+  "/property/:id",
+  rateLimiter,
+  authMiddleware,
+  layersController.getLayerProperties
+);
+
 module.exports = router;
