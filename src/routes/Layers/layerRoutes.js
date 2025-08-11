@@ -11,6 +11,9 @@ const {
 const {
   updateShpGeoDataValidator,
 } = require("../../validators/Layers/updateShpGeoDataValidator");
+const {
+  updateColorLayerValidator,
+} = require("../../validators/Layers/updateColorLayerValidator");
 const authMiddleware = require("../../middlewares/authMiddleware");
 const rateLimiter = require("../../middlewares/rateLimitMiddleware");
 const upload = require("../../middlewares/multerMiddleware");
@@ -64,6 +67,15 @@ router.get(
   rateLimiter,
   authMiddleware,
   layersController.getLayerProperties
+);
+
+router.patch(
+  "/update-color/:id",
+  rateLimiter,
+  authMiddleware,
+  updateColorLayerValidator,
+  validate,
+  layersController.updateLayerColor
 );
 
 module.exports = router;

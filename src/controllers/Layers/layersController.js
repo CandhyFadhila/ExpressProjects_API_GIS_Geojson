@@ -21,6 +21,7 @@ const {
   resolveArrayRelations,
 } = require("../../helpers/resolveArrayRelations");
 const serializeLayer = require("../../resources/Layers/serializeLayer");
+const { mapValuesToColor } = require("../../helpers/colorHelper");
 
 exports.store = async (req, res) => {
   const trx = await knex.transaction();
@@ -455,7 +456,7 @@ exports.update = async (req, res) => {
     const response = new WithDataResource(
       200,
       "SUCCESS_UPDATE_DATA",
-      "Berhasil Memperbarui",
+      "Berhasil Memperbarui Data",
       `Data Layer '${name}' berhasil diperbarui.`,
       result
     );
@@ -875,7 +876,162 @@ exports.getLayerProperties = async (req, res) => {
     );
     return res.status(200).json(response.toResponse());
   } catch (error) {
-    logger.error(`| Layers | - Error function getLayerProperties: ${error.message}`);
+    logger.error(
+      `| Layers | - Error function getLayerProperties: ${error.message}`
+    );
+    const response = new WithoutDataResource(
+      500,
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
+    );
+    res.status(500).json(response.toResponse());
+  }
+};
+
+exports.updateLayerColor = async (req, res) => {
+  const { id } = req.params;
+  const { propertyKey, colorscale } = req.body;
+
+  try {
+    // 1. Parsing colorscale jika dalam bentuk string
+    if (typeof colorscale === "string") {
+      try {
+        colorscale = JSON.parse(colorscale); // Parsing string JSON menjadi array
+      } catch (error) {
+        const response = new WithoutDataResource(
+          400,
+          "FORMAT_INVALID",
+          "Format colorscale Tidak Valid",
+          `Colorscale harus dalam format array string JSON.`
+        );
+        return res.status(400).json(response.toResponse());
+      }
+    }
+
+    // Pastikan colorscale adalah array
+    if (!Array.isArray(colorscale)) {
+      const response = new WithoutDataResource(
+        400,
+        "INVALID_COLORSCALE",
+        "Colorscale Tidak Valid",
+        `Colorscale harus berupa array.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 2. Ambil layer berdasarkan layer_id
+    const layer = await knex("layers")
+      .select("id", "table_name")
+      .where("id", id)
+      .whereNull("deleted_at")
+      .first();
+
+    if (!layer) {
+      const response = new WithoutDataResource(
+        200,
+        "DATA_NOT_FOUND",
+        "Data Tidak Ditemukan",
+        `Layer dengan ID '${id}' tidak ditemukan.`
+      );
+      return res.status(200).json(response.toResponse());
+    }
+
+    const tableNameRaw = layer.table_name;
+    let schema = "public";
+    let tableName = tableNameRaw;
+
+    if (tableNameRaw.includes(".")) {
+      const [sch, tbl] = tableNameRaw.split(".", 2);
+      schema = sch || "public";
+      tableName = tbl;
+    }
+
+    // 3. Cek apakah tabel ada
+    const existsQuery = await knex.raw(
+      `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = ? AND table_name = ?
+      ) AS exists;
+      `,
+      [schema, tableName]
+    );
+
+    const tableExists = existsQuery.rows?.[0]?.exists === true;
+    if (!tableExists) {
+      const response = new WithoutDataResource(
+        404,
+        "TABLE_NOT_FOUND",
+        "Tabel Tidak Ditemukan",
+        `Tabel '${tableNameRaw}' tidak ditemukan pada schema '${schema}'.`
+      );
+      return res.status(404).json(response.toResponse());
+    }
+
+    // 4. Cek apakah kolom propertyKey ada dalam tabel
+    const columnCheck = await knex.raw(
+      `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = ? AND table_name = ? AND column_name = ?
+      `,
+      [schema, tableName, propertyKey]
+    );
+
+    if (columnCheck.rows.length === 0) {
+      const response = new WithoutDataResource(
+        400,
+        "COLUMN_NOT_FOUND",
+        "Kolom Tidak Ditemukan",
+        `Kolom '${propertyKey}' tidak ditemukan di tabel '${tableName}'.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 5. Ambil nilai unik dari kolom propertyKey (hindari duplikat)
+    const valuesQuery = await knex(schema)
+      .select(propertyKey)
+      .distinct()
+      .from(tableName)
+      .whereNotNull(propertyKey);
+
+    const values = valuesQuery.map((row) => row[propertyKey]);
+
+    // 6. Buat mapping nilai ke warna
+    const valueToColor = mapValuesToColor(values, colorscale);
+
+    // 7. Update warna untuk data dengan kondisi:
+    const updates = [];
+    for (const value of values) {
+      const color = valueToColor.get(value);
+
+      // Jika warna lama ada, set null dulu
+      updates.push(
+        knex(tableName)
+          .where(propertyKey, value)
+          .update({ color: null })
+          .then(() => {
+            // Lalu update warna baru
+            return knex(tableName).where(propertyKey, value).update({ color });
+          })
+      );
+    }
+
+    // Menjalankan semua query update sekaligus
+    await Promise.all(updates);
+    const response = new WithoutDataResource(
+      200,
+      "SUCCESS_UPDATE_DATA",
+      "Berhasil Memperbarui Data",
+      `Warna untuk properti '${propertyKey}' pada tabel '${tableName}' berhasil diperbarui.`
+    );
+    return res.status(200).json(response.toResponse());
+  } catch (error) {
+    logger.error(
+      `| Layers | - Error function updateLayerColor: ${error.message}`
+    );
     const response = new WithoutDataResource(
       500,
       "SERVER_ERROR",
@@ -1033,6 +1189,7 @@ async function layersStoreUpdateResource(layer, depth = 0) {
   };
 }
 
+// Fungsi untuk upload shapefile
 async function handleShapefileUpload(
   shpFullPath,
   tableName,
@@ -1061,6 +1218,7 @@ async function handleShapefileUpload(
   }
 }
 
+// Fungsi untuk delete table dan documents terkait
 async function handleDeleteTableWithDocument(tableName, layerDocumentId) {
   try {
     // 1. Cek apakah kolom "document_ids" ada di dalam table
