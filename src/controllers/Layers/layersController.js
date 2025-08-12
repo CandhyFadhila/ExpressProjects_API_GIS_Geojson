@@ -1071,10 +1071,7 @@ async function layersResource(layer, depth = 0) {
 
       // Memasukkan dokumen ke dalam setiap fitur geojson berdasarkan document_ids masing-masing fitur
       for (const feature of features) {
-        // Dapatkan document_ids dari fitur saat ini
         const documentIds = feature.properties.document_ids || [];
-
-        // Ambil dokumen yang sesuai dengan document_ids untuk fitur ini
         const documents = await resolveArrayRelations(documentIds, "documents");
 
         // Masukkan dokumen ke dalam properti fitur geojson
