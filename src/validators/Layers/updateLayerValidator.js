@@ -59,6 +59,15 @@ exports.updateLayerValidator = [
     .isIn(["fill", "line"])
     .withMessage("Tipe layer yang boleh digunakan hanya fill atau line."),
 
+  body("with_explanation")
+    .optional()
+    .bail()
+    .customSanitizer((value) => {
+      return String(value).toLowerCase() === "true";
+    })
+    .isBoolean()
+    .withMessage("With explanation harus bernilai boolean (true atau false)."),
+
   body("table_name")
     .optional()
     .isString()

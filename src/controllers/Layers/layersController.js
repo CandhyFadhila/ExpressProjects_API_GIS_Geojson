@@ -244,6 +244,7 @@ exports.update = async (req, res) => {
     table_name,
     file_type,
     layer_type,
+    with_explanation,
   } = req.body;
   const id = req.params.id;
 
@@ -404,7 +405,7 @@ exports.update = async (req, res) => {
           file.endsWith(".shp")
         );
 
-        await handleShapefileUpload(shpFile, table_name, id);
+        await handleShapefileUpload(shpFile, table_name, id, with_explanation);
       } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
     }
 
@@ -444,6 +445,7 @@ exports.update = async (req, res) => {
         description,
         table_name,
         layer_type,
+        with_explanation,
         updated_at: trx.fn.now(),
       });
 
