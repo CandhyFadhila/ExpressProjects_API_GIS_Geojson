@@ -122,8 +122,14 @@ async function alterTableForMeta(schemaName, tableName) {
       ADD COLUMN IF NOT EXISTS color VARCHAR(9);
     `);
 
+    // 4. Tambahkan kolom color_property_key jika belum ada
+    // await client.query(`
+    //   ALTER TABLE "${schemaName}"."${tableName}"
+    //   ADD COLUMN IF NOT EXISTS color_property_key VARCHAR(255);
+    // `);
+
     logger.info(
-      `| alterTableForMeta | Kolom layer_id dan document_ids berhasil ditambahkan pada ${schemaName}.${tableName}`
+      `| alterTableForMeta | Kolom layer_id, document_ids, color, dan color_property_key berhasil ditambahkan pada ${schemaName}.${tableName}`
     );
   } catch (err) {
     throw new Error(
