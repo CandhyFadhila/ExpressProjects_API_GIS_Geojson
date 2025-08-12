@@ -18,6 +18,7 @@ async function serializeLayer(layer, depth = 0) {
     table_name: layer.table_name,
     layer_type: layer.layer_type,
     with_explanation: layer.with_explanation,
+    color_property_key: layer.color_property_key,
     created_at: layer.created_at,
     updated_at: layer.updated_at,
     deleted_at: layer.deleted_at,

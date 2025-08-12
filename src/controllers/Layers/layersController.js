@@ -652,7 +652,6 @@ exports.getLayerPropertiesbyLayerId = async (req, res) => {
       "layer_id",
       "document_ids",
       "color",
-      "color_property_key",
     ]);
     const properties = (columnsQuery.rows || [])
       .map((r) => r.column_name)
@@ -994,27 +993,7 @@ exports.updateLayerColor = async (req, res) => {
       return res.status(400).json(response.toResponse());
     }
 
-    // 5. Cek kolom color_property_key sudah ready apa belum
-    const colorPropertyColCheck = await knex.raw(
-      `
-      SELECT 1
-      FROM information_schema.columns
-      WHERE table_schema = ? AND table_name = ? AND column_name = 'color_property_key'
-      LIMIT 1
-      `,
-      [schema, tableName]
-    );
-    if (colorPropertyColCheck.rows.length === 0) {
-      const response = new WithoutDataResource(
-        400,
-        "COLOR_COLUMN_NOT_AVAILABLE",
-        "Kolom color_property_key tidak tersedia",
-        "Kolom color_property_key tidak tersedia, lakukan upload ulang SHP atau buat baru."
-      );
-      return res.status(400).json(response.toResponse());
-    }
-
-    // 6. Cek apakah kolom property_key ada dalam tabel
+    // 5. Cek apakah kolom property_key ada dalam tabel
     const columnCheck = await knex.raw(
       `
       SELECT column_name
@@ -1033,7 +1012,7 @@ exports.updateLayerColor = async (req, res) => {
       return res.status(400).json(response.toResponse());
     }
 
-    // 7. Ambil nilai unik dari kolom property_key (hindari duplikat)
+    // 6. Ambil nilai unik dari kolom property_key (hindari duplikat)
     const valuesQuery = await knex(schema)
       .select(property_key)
       .distinct()
@@ -1042,10 +1021,10 @@ exports.updateLayerColor = async (req, res) => {
 
     const values = valuesQuery.map((row) => row[property_key]);
 
-    // 8. Buat mapping nilai ke warna
+    // 7. Buat mapping nilai ke warna
     const valueToColor = mapValuesToColor(values, colorscale);
 
-    // 9. Update color dan color_property_key
+    // 8. Update color dan color_property_key
     const updates = [];
     for (const value of values) {
       const color = valueToColor.get(value);
@@ -1054,17 +1033,17 @@ exports.updateLayerColor = async (req, res) => {
       updates.push(
         knex(tableName)
           .where(property_key, value)
-          .update({ color: null, color_property_key: null })
+          .update({ color: null })
           .then(() => {
             return knex(tableName).where(property_key, value).update({ color });
           })
-          .then(() => {
-            return knex(tableName)
-              .where(property_key, value)
-              .update({ color_property_key: property_key });
-          })
       );
     }
+
+    // 9. Simpan property_key ke dalam color_property_key di tabel 'layers'
+    await knex("layers")
+      .where("id", id)
+      .update({ color_property_key: property_key });
 
     // Menjalankan semua query update sekaligus
     await Promise.all(updates);
@@ -1158,6 +1137,7 @@ async function layersResource(layer, depth = 0) {
     table_name: layer.table_name,
     layer_type: layer.layer_type,
     with_explanation: layer.with_explanation,
+    color_property_key: layer.color_property_key,
     data,
     created_at: layer.created_at,
     updated_at: layer.updated_at,
@@ -1231,6 +1211,7 @@ async function layersStoreUpdateWithoutGeojsonResource(layer, depth = 0) {
     table_name: layer.table_name,
     layer_type: layer.layer_type,
     with_explanation: layer.with_explanation,
+    color_property_key: layer.color_property_key,
     data,
     created_at: layer.created_at,
     updated_at: layer.updated_at,
@@ -1318,6 +1299,7 @@ async function layersSingleFeatureWithoutGeojsonResource(
     table_name: layer.table_name,
     layer_type: layer.layer_type,
     with_explanation: layer.with_explanation,
+    color_property_key: layer.color_property_key,
     data,
     created_at: layer.created_at,
     updated_at: layer.updated_at,

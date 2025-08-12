@@ -3,7 +3,7 @@ const { body } = require("express-validator");
 // Hex color: #RGB, #RRGGBB, #RRGGBBAA
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 // Kolom yang dilarang untuk property_key
-const RESERVED_KEYS = ["id", "geom", "layer_id", "document_ids", "color", "color_property_key"];
+const RESERVED_KEYS = ["id", "geom", "layer_id", "document_ids", "color"];
 
 exports.updateColorLayerValidator = [
   body("property_key")
