@@ -211,7 +211,7 @@ exports.store = async (req, res) => {
     await trx.commit();
 
     const savedLayer = await knex("layers").where("id", newLayer.id).first();
-    const result = await layersStoreUpdateResource(savedLayer);
+    const result = await layersStoreUpdateWithoutGeojsonResource(savedLayer);
 
     const response = new WithDataResource(
       201,
@@ -451,7 +451,7 @@ exports.update = async (req, res) => {
     await trx.commit();
 
     const saved = await knex("layers").where("id", id).first();
-    const result = await layersStoreUpdateResource(saved);
+    const result = await layersStoreUpdateWithoutGeojsonResource(saved);
 
     const response = new WithDataResource(
       200,
@@ -864,7 +864,7 @@ exports.updateLayerFeatures = async (req, res) => {
 
     // 7. Ambil kembali layer terbaru
     const updatedLayer = await knex("layers").where("id", layer_id).first();
-    const result = await singleLayersWithoutGeojson(updatedLayer, 0, id);
+    const result = await layersSingleFeatureWithoutGeojsonResource(updatedLayer, 0, id);
 
     const response = new WithDataResource(
       200,
@@ -1119,7 +1119,7 @@ async function layersResource(layer, depth = 0) {
 }
 
 // Fungsi untuk menampilkan tanpa geojson
-async function layersStoreUpdateResource(layer, depth = 0) {
+async function layersStoreUpdateWithoutGeojsonResource(layer, depth = 0) {
   const MAX_DEPTH = 3;
   const workspace = layer.workspace_id
     ? await knex("workspaces").where("id", layer.workspace_id).first()
@@ -1192,7 +1192,7 @@ async function layersStoreUpdateResource(layer, depth = 0) {
 }
 
 // Fungsi untuk menampilkan tanpa geojson tapi hanya 1 bidang
-async function singleLayersWithoutGeojson(layer, depth = 0, featureId) {
+async function layersSingleFeatureWithoutGeojsonResource(layer, depth = 0, featureId) {
   const MAX_DEPTH = 3;
   const workspace = layer.workspace_id
     ? await knex("workspaces").where("id", layer.workspace_id).first()
