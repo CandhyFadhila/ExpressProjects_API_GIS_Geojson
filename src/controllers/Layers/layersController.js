@@ -864,7 +864,7 @@ exports.updateLayerFeatures = async (req, res) => {
 
     // 7. Ambil kembali layer terbaru
     const updatedLayer = await knex("layers").where("id", layer_id).first();
-    const result = await layersResource(updatedLayer);
+    const result = await singleLayersWithoutGeojson(updatedLayer, 0, id);
 
     const response = new WithDataResource(
       200,
@@ -1069,13 +1069,13 @@ async function layersResource(layer, depth = 0) {
       const bbox = geojsonResult.bbox;
       const center = geojsonResult.center;
 
-      // Memasukkan dokumen ke dalam setiap fitur geojson berdasarkan document_ids masing-masing fitur
+      // Memasukkan dokumen ke dalam setiap fitur geojson berdasarkan document_ids tiap2 fitur
       for (const feature of features) {
         const documentIds = feature.properties.document_ids || [];
         const documents = await resolveArrayRelations(documentIds, "documents");
 
-        // Masukkan dokumen ke dalam properti fitur geojson
-        feature.properties.documents = documents;
+        // Masukkan dokumen ke dalam features tapi diluar properties
+        feature.documents = documents;
       }
 
       data = {
@@ -1160,6 +1160,89 @@ async function layersStoreUpdateResource(layer, depth = 0) {
         //   type: "FeatureCollection",
         //   features,
         // },
+        created_at: firstRow.created_at,
+        updated_at: firstRow.updated_at,
+        deleted_at: firstRow.deleted_at,
+      };
+    }
+  } catch (err) {
+    console.error(
+      `❌ Error mengambil data dari ${layer.table_name}:`,
+      err.message
+    );
+    data = null;
+  }
+
+  return {
+    id: layer.id,
+    workspace: workspace ? await workspaceResource(workspace) : null,
+    parent_layer: parentLayer
+      ? await layersResource(parentLayer, depth + 1)
+      : null,
+    name: layer.name,
+    description: layer.description,
+    table_name: layer.table_name,
+    layer_type: layer.layer_type,
+    with_explanation: layer.with_explanation,
+    data,
+    created_at: layer.created_at,
+    updated_at: layer.updated_at,
+    deleted_at: layer.deleted_at,
+  };
+}
+
+// Fungsi untuk menampilkan tanpa geojson tapi hanya 1 bidang
+async function singleLayersWithoutGeojson(layer, depth = 0, featureId) {
+  const MAX_DEPTH = 3;
+  const workspace = layer.workspace_id
+    ? await knex("workspaces").where("id", layer.workspace_id).first()
+    : null;
+
+  const parentLayer =
+    layer.parent_layer_id && depth < MAX_DEPTH
+      ? await knex("layers").where("id", layer.parent_layer_id).first()
+      : null;
+
+  const serializedLayer = await serializeLayer(layer);
+
+  // Ambil semua baris dari table_name
+  let data = null;
+  try {
+    const rows = await knex(layer.table_name)
+      .where("id", featureId)
+      .select("*")
+      .limit(1);
+
+    if (rows.length > 0) {
+      const firstRow = rows[0];
+
+      const geojsonResult = convertShapefileRowsToGeoJSON(rows);
+      const features = geojsonResult.features;
+      const bbox = geojsonResult.bbox;
+      const center = geojsonResult.center;
+
+      // Memasukkan dokumen ke dalam setiap fitur geojson berdasarkan document_ids tiap2 fitur
+      for (const feature of features) {
+        const documentIds = feature.properties.document_ids || [];
+        const documents = await resolveArrayRelations(documentIds, "documents");
+
+        // Masukkan dokumen ke dalam features tapi diluar properties
+        feature.documents = documents;
+
+        delete feature.geometry;
+      }
+
+      const feature = features[0];
+
+      data = {
+        id: firstRow.id,
+        layer_id: serializedLayer,
+        bbox,
+        bbox_center: center,
+        geojson: {
+          type: "FeatureCollection",
+          features: [feature],
+        },
         created_at: firstRow.created_at,
         updated_at: firstRow.updated_at,
         deleted_at: firstRow.deleted_at,
