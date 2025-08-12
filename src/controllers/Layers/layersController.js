@@ -652,6 +652,7 @@ exports.getLayerPropertiesbyLayerId = async (req, res) => {
       "layer_id",
       "document_ids",
       "color",
+      "color_property_key",
     ]);
     const properties = (columnsQuery.rows || [])
       .map((r) => r.column_name)
