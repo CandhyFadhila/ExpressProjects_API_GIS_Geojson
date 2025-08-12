@@ -32,7 +32,7 @@ router.patch(
   upload.array("file", 5),
   updateShpGeoDataValidator,
   validate,
-  layersController.updateShapefileData
+  layersController.updateLayerFeatures
 );
 
 router.post(
@@ -66,7 +66,7 @@ router.get(
   "/property/:id",
   rateLimiter,
   authMiddleware,
-  layersController.getLayerProperties
+  layersController.getLayerPropertiesbyLayerId
 );
 
 router.patch(

@@ -579,7 +579,113 @@ exports.getLayersbyWorkspaceId = async (req, res) => {
   }
 };
 
-exports.updateShapefileData = async (req, res) => {
+exports.getLayerPropertiesbyLayerId = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // 1. Ambil layer berdasarkan layer_id
+    const layer = await knex("layers")
+      .select("id", "table_name")
+      .where("id", id)
+      .whereNull("deleted_at")
+      .first();
+
+    // 2. Jika layer tidak ditemukan
+    if (!layer) {
+      const response = new WithoutDataResource(
+        200,
+        "DATA_NOT_FOUND",
+        "Data Tidak Ditemukan",
+        `Layer dengan ID '${id}' tidak ditemukan.`
+      );
+      return res.status(200).json(response.toResponse());
+    }
+
+    // 3. Ambil table_name & pecah schema bila ada
+    const tableNameRaw = layer.table_name;
+    let schema = "public";
+    let tableName = tableNameRaw;
+
+    if (tableNameRaw.includes(".")) {
+      const [sch, tbl] = tableNameRaw.split(".", 2);
+      schema = sch || "public";
+      tableName = tbl;
+    }
+
+    // 4. Cek apakah tabel ada
+    const existsQuery = await knex.raw(
+      `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = ? AND table_name = ?
+      ) AS exists;
+      `,
+      [schema, tableName]
+    );
+
+    const tableExists = existsQuery.rows?.[0]?.exists === true;
+    if (!tableExists) {
+      const response = new WithoutDataResource(
+        404,
+        "TABLE_NOT_FOUND",
+        "Tabel Tidak Ditemukan",
+        `Tabel '${tableNameRaw}' tidak ditemukan pada schema '${schema}'.`
+      );
+      return res.status(404).json(response.toResponse());
+    }
+
+    // 5. Ambil semua kolom selain yang dikecualikan
+    const columnsQuery = await knex.raw(
+      `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = ? AND table_name = ?
+      ORDER BY ordinal_position;
+      `,
+      [schema, tableName]
+    );
+
+    const excluded = new Set([
+      "id",
+      "geom",
+      "layer_id",
+      "document_ids",
+      "color",
+    ]);
+    const properties = (columnsQuery.rows || [])
+      .map((r) => r.column_name)
+      .filter((name) => !excluded.has(String(name).toLowerCase()));
+
+    // 6. Susun result (tanpa resource transformer)
+    const result = {
+      table_name: tableNameRaw,
+      properties, // array of string
+    };
+
+    const response = new WithDataResource(
+      200,
+      "SUCCESS_GET_DATA",
+      "Berhasil Mengambil Data",
+      `Berhasil mengambil daftar properti dari tabel '${tableNameRaw}'.`,
+      result
+    );
+    return res.status(200).json(response.toResponse());
+  } catch (error) {
+    logger.error(
+      `| Layers | - Error function getLayerPropertiesbyLayerId: ${error.message}`
+    );
+    const response = new WithoutDataResource(
+      500,
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
+    );
+    res.status(500).json(response.toResponse());
+  }
+};
+
+exports.updateLayerFeatures = async (req, res) => {
   const { table_name, layer_id, properties, delete_document_ids } = req.body;
   const trx = await knex.transaction();
   const allowedUpdateColumns = [
@@ -771,113 +877,7 @@ exports.updateShapefileData = async (req, res) => {
   } catch (error) {
     await trx.rollback(); // Rollback jika error
     logger.error(
-      `| Update Shapefile | - Error updateShapefileData: ${error.message}`
-    );
-    const response = new WithoutDataResource(
-      500,
-      "SERVER_ERROR",
-      "Server Sedang Error",
-      "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
-    );
-    res.status(500).json(response.toResponse());
-  }
-};
-
-exports.getLayerProperties = async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    // 1. Ambil layer berdasarkan layer_id
-    const layer = await knex("layers")
-      .select("id", "table_name")
-      .where("id", id)
-      .whereNull("deleted_at")
-      .first();
-
-    // 2. Jika layer tidak ditemukan
-    if (!layer) {
-      const response = new WithoutDataResource(
-        200,
-        "DATA_NOT_FOUND",
-        "Data Tidak Ditemukan",
-        `Layer dengan ID '${id}' tidak ditemukan.`
-      );
-      return res.status(200).json(response.toResponse());
-    }
-
-    // 3. Ambil table_name & pecah schema bila ada
-    const tableNameRaw = layer.table_name;
-    let schema = "public";
-    let tableName = tableNameRaw;
-
-    if (tableNameRaw.includes(".")) {
-      const [sch, tbl] = tableNameRaw.split(".", 2);
-      schema = sch || "public";
-      tableName = tbl;
-    }
-
-    // 4. Cek apakah tabel ada
-    const existsQuery = await knex.raw(
-      `
-      SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = ? AND table_name = ?
-      ) AS exists;
-      `,
-      [schema, tableName]
-    );
-
-    const tableExists = existsQuery.rows?.[0]?.exists === true;
-    if (!tableExists) {
-      const response = new WithoutDataResource(
-        404,
-        "TABLE_NOT_FOUND",
-        "Tabel Tidak Ditemukan",
-        `Tabel '${tableNameRaw}' tidak ditemukan pada schema '${schema}'.`
-      );
-      return res.status(404).json(response.toResponse());
-    }
-
-    // 5. Ambil semua kolom selain yang dikecualikan
-    const columnsQuery = await knex.raw(
-      `
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = ? AND table_name = ?
-      ORDER BY ordinal_position;
-      `,
-      [schema, tableName]
-    );
-
-    const excluded = new Set([
-      "id",
-      "geom",
-      "layer_id",
-      "document_ids",
-      "color",
-    ]);
-    const properties = (columnsQuery.rows || [])
-      .map((r) => r.column_name)
-      .filter((name) => !excluded.has(String(name).toLowerCase()));
-
-    // 6. Susun result (tanpa resource transformer)
-    const result = {
-      table_name: tableNameRaw,
-      properties, // array of string
-    };
-
-    const response = new WithDataResource(
-      200,
-      "SUCCESS_GET_DATA",
-      "Berhasil Mengambil Data",
-      `Berhasil mengambil daftar properti dari tabel '${tableNameRaw}'.`,
-      result
-    );
-    return res.status(200).json(response.toResponse());
-  } catch (error) {
-    logger.error(
-      `| Layers | - Error function getLayerProperties: ${error.message}`
+      `| Update Shapefile | - Error updateLayerFeatures: ${error.message}`
     );
     const response = new WithoutDataResource(
       500,
@@ -1069,16 +1069,21 @@ async function layersResource(layer, depth = 0) {
       const bbox = geojsonResult.bbox;
       const center = geojsonResult.center;
 
-      // TODO: Pindah documents kedalam features
-      const documents = await resolveArrayRelations(
-        firstRow.document_ids || [],
-        "documents"
-      );
+      // Memasukkan dokumen ke dalam setiap fitur geojson berdasarkan document_ids masing-masing fitur
+      for (const feature of features) {
+        // Dapatkan document_ids dari fitur saat ini
+        const documentIds = feature.properties.document_ids || [];
+
+        // Ambil dokumen yang sesuai dengan document_ids untuk fitur ini
+        const documents = await resolveArrayRelations(documentIds, "documents");
+
+        // Masukkan dokumen ke dalam properti fitur geojson
+        feature.properties.documents = documents;
+      }
 
       data = {
         id: firstRow.id,
         layer_id: serializedLayer,
-        documents,
         bbox,
         bbox_center: center,
         geojson: {
@@ -1143,15 +1148,15 @@ async function layersStoreUpdateResource(layer, depth = 0) {
       const bbox = geojsonResult.bbox;
       const center = geojsonResult.center;
 
-      const documents = await resolveArrayRelations(
-        firstRow.document_ids || [],
-        "documents"
-      );
+      // const documents = await resolveArrayRelations(
+      //   firstRow.document_ids || [],
+      //   "documents"
+      // );
 
       data = {
         id: firstRow.id,
         layer_id: serializedLayer,
-        documents,
+        // documents,
         bbox,
         bbox_center: center,
         // geojson: {
