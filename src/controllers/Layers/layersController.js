@@ -157,8 +157,8 @@ exports.store = async (req, res) => {
       // 5a. Ekstrak isi ZIP untuk validasi file shapefile
       const { extractPath, fileList } = await extractZipShapefile(filePath);
 
-      // Ambil hanya file .shp, .shx, .dbf dan abaikan folder / file lain
-      const validExtensions = [".shp", ".shx", ".dbf"];
+      // Ambil hanya file .shp, .shx, .dbf, .prj, .cpg dan abaikan folder / file lain
+      const validExtensions = [".shp", ".shx", ".dbf", ".prj", ".cpg"];
       const shapefileComponents = fileList.filter((file) => {
         const ext = path.extname(file).toLowerCase();
         const base = path.basename(file);
@@ -176,6 +176,7 @@ exports.store = async (req, res) => {
       const hasSHP = foundExtensions.includes(".shp");
       const hasSHX = foundExtensions.includes(".shx");
       const hasDBF = foundExtensions.includes(".dbf");
+      const hasPRJ = foundExtensions.includes(".prj");
 
       if (!(hasSHP && hasSHX && hasDBF)) {
         // Bersihkan folder temp jika tidak valid
@@ -197,14 +198,51 @@ exports.store = async (req, res) => {
         return res.status(400).json(response.toResponse());
       }
 
+      // Baca preferensi CRS dari body
+      // - source_srid bisa "EPSG:32749" atau hanya "32749"
+      // - assume_4326 = true bila datanya memang sudah WGS84 (lon/lat)
+      const srcSrsRaw = (req.body?.source_srid ?? "").toString().trim();
+      const srcSrs = srcSrsRaw
+        ? srcSrsRaw.toUpperCase().startsWith("EPSG:")
+          ? srcSrsRaw.toUpperCase()
+          : `EPSG:${srcSrsRaw}`
+        : null;
+
+      const assume4326 =
+        String(req.body?.assume_4326).toLowerCase() === "true" ||
+        req.body?.assume_4326 === true;
+
+      if (!hasPRJ && !srcSrs && !assume4326) {
+        try {
+          fs.rmSync(extractPath, { recursive: true, force: true });
+        } catch (err) {
+          logger.warn(
+            `| Layers | - Gagal menghapus folder temp (.prj tidak ada): ${err.message}`
+          );
+        }
+
+        await trx.rollback();
+        const response = new WithoutDataResource(
+          400,
+          "SRS_REQUIRED",
+          "CRS Sumber Diperlukan",
+          "ZIP Anda tidak memuat file .prj. Sertakan file .prj terlebih dahulu agar dapat dilakukan konversi."
+        );
+        return res.status(400).json(response.toResponse());
+      }
+
       // Ambil file .shp utama dari komponen valid
       const shpFile = shapefileComponents.find((file) => file.endsWith(".shp"));
+
+      // Opsi untuk helper OGR (digunakan menentukan -s_srs / -t_srs / -a_srs)
+      const ogrOpts = { hasPRJ, srcSrs, assume4326 };
 
       await handleShapefileUpload(
         shpFile,
         table_name,
         newLayer.id,
-        with_explanation
+        with_explanation,
+        ogrOpts
       );
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
@@ -360,8 +398,8 @@ exports.update = async (req, res) => {
         // 5a. Ekstrak isi ZIP untuk validasi file shapefile
         const { extractPath, fileList } = await extractZipShapefile(filePath);
 
-        // Ambil hanya file .shp, .shx, .dbf dan abaikan folder / file lain
-        const validExtensions = [".shp", ".shx", ".dbf"];
+        // Ambil hanya file .shp, .shx, .dbf, .prj, .cpg dan abaikan folder / file lain
+        const validExtensions = [".shp", ".shx", ".dbf", ".prj", ".cpg"];
         const shapefileComponents = fileList.filter((file) => {
           const ext = path.extname(file).toLowerCase();
           const base = path.basename(file);
@@ -379,9 +417,9 @@ exports.update = async (req, res) => {
         const hasSHP = foundExtensions.includes(".shp");
         const hasSHX = foundExtensions.includes(".shx");
         const hasDBF = foundExtensions.includes(".dbf");
+        const hasPRJ = foundExtensions.includes(".prj");
 
         if (!(hasSHP && hasSHX && hasDBF)) {
-          // Bersihkan folder temp jika tidak valid
           try {
             fs.rmSync(extractPath, { recursive: true, force: true });
           } catch (err) {
@@ -400,12 +438,55 @@ exports.update = async (req, res) => {
           return res.status(400).json(response.toResponse());
         }
 
+        // Baca preferensi CRS dari body
+        // - source_srid bisa "EPSG:32749" atau hanya "32749"
+        // - assume_4326 = true bila datanya memang sudah WGS84 (lon/lat)
+        const srcSrsRaw = (req.body?.source_srid ?? "").toString().trim();
+        const srcSrs = srcSrsRaw
+          ? srcSrsRaw.toUpperCase().startsWith("EPSG:")
+            ? srcSrsRaw.toUpperCase()
+            : `EPSG:${srcSrsRaw}`
+          : null;
+
+        const assume4326 =
+          String(req.body?.assume_4326).toLowerCase() === "true" ||
+          req.body?.assume_4326 === true;
+
+        // Jika .prj tidak ada, wajib ada source_srid atau assume_4326
+        if (!hasPRJ && !srcSrs && !assume4326) {
+          try {
+            fs.rmSync(extractPath, { recursive: true, force: true });
+          } catch (err) {
+            logger.warn(
+              `| Layers | - Gagal menghapus folder temp (.prj tidak ada): ${err.message}`
+            );
+          }
+
+          await trx.rollback();
+          const response = new WithoutDataResource(
+            400,
+            "SRS_REQUIRED",
+            "CRS Sumber Diperlukan",
+            "ZIP Anda tidak memuat .prj. Sertakan file .prj, atau kirim 'source_srid' (mis. EPSG:32749) atau set 'assume_4326=true' bila datanya sudah WGS84."
+          );
+          return res.status(400).json(response.toResponse());
+        }
+
         // Ambil file .shp utama dari komponen valid
         const shpFile = shapefileComponents.find((file) =>
           file.endsWith(".shp")
         );
 
-        await handleShapefileUpload(shpFile, table_name, id, with_explanation);
+        // Opsi untuk helper OGR (digunakan menentukan -s_srs / -t_srs / -a_srs)
+        const ogrOpts = { hasPRJ, srcSrs, assume4326 };
+
+        await handleShapefileUpload(
+          shpFile,
+          table_name,
+          id,
+          with_explanation,
+          ogrOpts
+        );
       } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
     }
 
