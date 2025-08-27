@@ -234,15 +234,11 @@ exports.store = async (req, res) => {
       // Ambil file .shp utama dari komponen valid
       const shpFile = shapefileComponents.find((file) => file.endsWith(".shp"));
 
-      // Opsi untuk helper OGR (digunakan menentukan -s_srs / -t_srs / -a_srs)
-      const ogrOpts = { hasPRJ, srcSrs, assume4326 };
-
       await handleShapefileUpload(
         shpFile,
         table_name,
         newLayer.id,
-        with_explanation,
-        ogrOpts
+        with_explanation
       );
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
@@ -477,15 +473,11 @@ exports.update = async (req, res) => {
           file.endsWith(".shp")
         );
 
-        // Opsi untuk helper OGR (digunakan menentukan -s_srs / -t_srs / -a_srs)
-        const ogrOpts = { hasPRJ, srcSrs, assume4326 };
-
         await handleShapefileUpload(
           shpFile,
           table_name,
           id,
-          with_explanation,
-          ogrOpts
+          with_explanation
         );
       } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
     }

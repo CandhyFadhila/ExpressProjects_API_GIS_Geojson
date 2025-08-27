@@ -10,19 +10,13 @@ async function convertShapefileToPostgres(
   tableName,
   schemaName = "public",
   layerId = null,
-  withExplanation = false,
-  ogrOpts = {}
+  withExplanation = false
 ) {
-  const { hasPRJ, srcSrs, assume4326 } = ogrOpts;
-
   // Gunakan path lengkap ke ogr2ogr.exe
   const { ogrCmd, env } = getOgrConfigByEnv(
     shpFilePath,
     tableName,
-    schemaName,
-    hasPRJ,
-    srcSrs,
-    assume4326
+    schemaName
   );
   logger.info(`| convertShapefile | Eksekusi perintah: ${ogrCmd}`);
 
@@ -71,9 +65,6 @@ async function convertShapefileToPostgres(
     } finally {
       await clientCheck.end();
     }
-
-    // 3. (opsional tapi direkomendasikan) pastikan geometry kolom sesuai 4326 & MultiPolygon
-    await ensureGeomIsMultiPolygon4326(schemaName, tableName, assume4326);
 
     // 4. Tambahkan kolom
     await alterTableForMeta(schemaName, tableName); //Required
@@ -197,46 +188,6 @@ async function addExplanationColumnsIfNeeded(schemaName, tableName) {
     throw new Error(
       `Gagal memproses pengecekan dan penambahan kolom penjelasan`
     );
-  } finally {
-    await client.end();
-  }
-}
-
-// Pastikan kolom geom bertipe MultiPolygon SRID 4326 (aman jika sudah benar)
-async function ensureGeomIsMultiPolygon4326(schemaName, tableName, assume4326) {
-  const client = await getPgClientByEnv();
-  try {
-    // Jika kita 'assume_4326' atau memakai transform ke 4326, paksa tipe & SRID
-    const sql = `
-      DO $$
-      DECLARE
-        v_schema text := ${
-          client.escapeLiteral
-            ? client.escapeLiteral(schemaName)
-            : `'${schemaName}'`
-        };
-        v_table  text := ${
-          client.escapeLiteral
-            ? client.escapeLiteral(tableName)
-            : `'${tableName}'`
-        };
-      BEGIN
-        EXECUTE format(
-          'ALTER TABLE %I.%I ALTER COLUMN geom TYPE geometry(MultiPolygon,4326) USING ST_SetSRID(ST_Force2D(geom),4326);',
-          ${schemaName ? `'${schemaName}'` : "NULL"},
-          ${tableName ? `'${tableName}'` : "NULL"}
-        );
-      EXCEPTION
-        WHEN OTHERS THEN
-          -- Jika kolom geom tidak ada / tipe bukan polygon (mis import data line/point), biarkan saja.
-          -- Logging dikerjakan di JS saja.
-          NULL;
-      END $$;
-    `;
-    await client.query(sql);
-  } catch (e) {
-    // cukup log; jangan buat proses gagal hanya karena cast tipe gagal
-    // (misalnya layer bukan polygon)
   } finally {
     await client.end();
   }
