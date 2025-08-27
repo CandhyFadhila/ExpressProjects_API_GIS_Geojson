@@ -35,6 +35,7 @@ exports.store = async (req, res) => {
     layer_type,
     with_explanation,
   } = req.body;
+  const layerType = String(layer_type ?? '').trim().toLowerCase();
 
   try {
     // 1. Validasi dengan express-validator
@@ -147,7 +148,7 @@ exports.store = async (req, res) => {
         name,
         description,
         table_name,
-        layer_type,
+        layer_type: layerType,
         with_explanation,
       })
       .returning("*");
@@ -226,7 +227,7 @@ exports.store = async (req, res) => {
           400,
           "SRS_REQUIRED",
           "CRS Sumber Diperlukan",
-          "ZIP Anda tidak memuat file .prj. Sertakan file .prj terlebih dahulu agar dapat dilakukan konversi."
+          "File ZIP harus memuat file .prj. Sertakan file .prj terlebih dahulu agar dapat dilakukan konversi."
         );
         return res.status(400).json(response.toResponse());
       }
@@ -238,7 +239,8 @@ exports.store = async (req, res) => {
         shpFile,
         table_name,
         newLayer.id,
-        with_explanation
+        with_explanation,
+        layerType,
       );
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
@@ -280,6 +282,7 @@ exports.update = async (req, res) => {
     layer_type,
     with_explanation,
   } = req.body;
+  const layerType = String(layer_type ?? '').trim().toLowerCase();
   const id = req.params.id;
 
   try {
@@ -477,7 +480,8 @@ exports.update = async (req, res) => {
           shpFile,
           table_name,
           id,
-          with_explanation
+          with_explanation,
+          layerType
         );
       } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
     }
@@ -1387,14 +1391,16 @@ async function handleShapefileUpload(
   shpFullPath,
   tableName,
   layerId,
-  withExplanation = false
+  withExplanation = false,
+  layerType
 ) {
   await convertShapefileToPostgres(
     shpFullPath,
     tableName,
     "public",
     layerId,
-    withExplanation
+    withExplanation,
+    layerType
   );
 
   // Setelah konversi selesai, hapus folder temp

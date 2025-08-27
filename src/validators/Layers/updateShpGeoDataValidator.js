@@ -1,5 +1,4 @@
 const { body } = require("express-validator");
-const knex = require("../../config/database");
 
 exports.updateShpGeoDataValidator = [
   body("table_name")

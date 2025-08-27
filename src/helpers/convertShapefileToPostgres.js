@@ -10,13 +10,15 @@ async function convertShapefileToPostgres(
   tableName,
   schemaName = "public",
   layerId = null,
-  withExplanation = false
+  withExplanation = false,
+  layerType
 ) {
   // Gunakan path lengkap ke ogr2ogr.exe
   const { ogrCmd, env } = getOgrConfigByEnv(
     shpFilePath,
     tableName,
-    schemaName
+    schemaName,
+    layerType
   );
   logger.info(`| convertShapefile | Eksekusi perintah: ${ogrCmd}`);
 
@@ -66,7 +68,7 @@ async function convertShapefileToPostgres(
       await clientCheck.end();
     }
 
-    // 4. Tambahkan kolom
+    // 3. Tambahkan kolom
     await alterTableForMeta(schemaName, tableName); //Required
 
     if (withExplanation) {
@@ -194,52 +196,52 @@ async function addExplanationColumnsIfNeeded(schemaName, tableName) {
 }
 
 // Update kolom shp jadi lowercase
-async function checkAndFixCharacterVaryingLength(schemaName, tableName) {
-  const client = await getPgClientByEnv();
+// async function checkAndFixCharacterVaryingLength(schemaName, tableName) {
+//   const client = await getPgClientByEnv();
 
-  try {
-    const query = `
-      SELECT column_name, character_maximum_length
-      FROM information_schema.columns
-      WHERE table_schema = $1
-      AND table_name = $2
-      AND data_type = 'character varying';
-    `;
-    const res = await client.query(query, [schemaName, tableName]);
+//   try {
+//     const query = `
+//       SELECT column_name, character_maximum_length
+//       FROM information_schema.columns
+//       WHERE table_schema = $1
+//       AND table_name = $2
+//       AND data_type = 'character varying';
+//     `;
+//     const res = await client.query(query, [schemaName, tableName]);
 
-    // Jika ada kolom character varying dengan panjang < 254, lakukan perubahan
-    const columnsToUpdate = res.rows.filter(
-      (row) => row.character_maximum_length < 254
-    );
+//     // Jika ada kolom character varying dengan panjang < 254, lakukan perubahan
+//     const columnsToUpdate = res.rows.filter(
+//       (row) => row.character_maximum_length < 254
+//     );
 
-    if (columnsToUpdate.length > 0) {
-      logger.info(
-        `| convertShapefile | Kolom dengan panjang kurang dari 254 ditemukan: ${columnsToUpdate
-          .map((row) => row.column_name)
-          .join(", ")}`
-      );
-      for (const column of columnsToUpdate) {
-        const alterQuery = `
-          ALTER TABLE "${schemaName}"."${tableName}"
-          ALTER COLUMN "${column.column_name}" SET DATA TYPE character varying(254);
-        `;
-        await client.query(alterQuery);
-        logger.info(
-          `| convertShapefile | Panjang kolom ${column.column_name} diubah menjadi 254`
-        );
-      }
-    } else {
-      logger.info(
-        `| convertShapefile | Semua kolom sudah memiliki panjang >= 254`
-      );
-    }
-  } catch (err) {
-    throw new Error(
-      `Error saat memeriksa dan memperbaiki panjang kolom: ${err.message}`
-    );
-  } finally {
-    await client.end();
-  }
-}
+//     if (columnsToUpdate.length > 0) {
+//       logger.info(
+//         `| convertShapefile | Kolom dengan panjang kurang dari 254 ditemukan: ${columnsToUpdate
+//           .map((row) => row.column_name)
+//           .join(", ")}`
+//       );
+//       for (const column of columnsToUpdate) {
+//         const alterQuery = `
+//           ALTER TABLE "${schemaName}"."${tableName}"
+//           ALTER COLUMN "${column.column_name}" SET DATA TYPE character varying(254);
+//         `;
+//         await client.query(alterQuery);
+//         logger.info(
+//           `| convertShapefile | Panjang kolom ${column.column_name} diubah menjadi 254`
+//         );
+//       }
+//     } else {
+//       logger.info(
+//         `| convertShapefile | Semua kolom sudah memiliki panjang >= 254`
+//       );
+//     }
+//   } catch (err) {
+//     throw new Error(
+//       `Error saat memeriksa dan memperbaiki panjang kolom: ${err.message}`
+//     );
+//   } finally {
+//     await client.end();
+//   }
+// }
 
 module.exports = { convertShapefileToPostgres };

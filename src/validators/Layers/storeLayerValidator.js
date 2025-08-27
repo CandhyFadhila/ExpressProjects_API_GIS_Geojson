@@ -55,8 +55,8 @@ exports.storeLayerValidator = [
   body("layer_type")
     .notEmpty()
     .withMessage("Tipe layer tidak boleh kosong.")
-    .isIn(["fill", "line"])
-    .withMessage("Tipe layer yang boleh digunakan hanya fill atau line."),
+    .isIn(["fill", "line", "symbol"])
+    .withMessage("Tipe layer yang boleh digunakan hanya Fill, Line, atau Symbol."),
 
   body("with_explanation")
     .optional()

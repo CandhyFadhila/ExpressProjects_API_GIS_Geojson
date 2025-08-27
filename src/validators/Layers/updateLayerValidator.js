@@ -56,8 +56,8 @@ exports.updateLayerValidator = [
 
   body("layer_type")
     .optional()
-    .isIn(["fill", "line"])
-    .withMessage("Tipe layer yang boleh digunakan hanya fill atau line."),
+    .isIn(["fill", "line", "symbol"])
+    .withMessage("Tipe layer yang boleh digunakan hanya Fill, Line, atau Symbol."),
 
   body("with_explanation")
     .optional()
