@@ -25,11 +25,21 @@ router.get(
   layersController.getLayersbyWorkspaceId
 );
 
+router.get(
+  "/layers-by-workspace/:workspace_id",
+  rateLimiter,
+  authMiddleware,
+  layersController.getLayersbyWorkspaceIdWithoutGeojson
+);
+
 router.patch(
   "/update-field",
   rateLimiter,
   authMiddleware,
-  upload.array("file", 5),
+  upload.fields([
+    { name: "sk_document", maxCount: 5 },
+    { name: "other_document", maxCount: 5 },
+  ]),
   updateShpGeoDataValidator,
   validate,
   layersController.updateLayerFeatures

@@ -10,7 +10,7 @@ async function serializeLayer(layer, depth = 0) {
 
   return {
     id: layer.id,
-    parent_layer: parentLayer
+    parent_layer_id: parentLayer
       ? await serializeLayer(parentLayer, depth + 1)
       : null,
     name: layer.name,

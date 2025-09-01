@@ -35,7 +35,9 @@ exports.store = async (req, res) => {
     layer_type,
     with_explanation,
   } = req.body;
-  const layerType = String(layer_type ?? '').trim().toLowerCase();
+  const layerType = String(layer_type ?? "")
+    .trim()
+    .toLowerCase();
 
   try {
     // 1. Validasi dengan express-validator
@@ -240,7 +242,7 @@ exports.store = async (req, res) => {
         table_name,
         newLayer.id,
         with_explanation,
-        layerType,
+        layerType
       );
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
@@ -282,7 +284,9 @@ exports.update = async (req, res) => {
     layer_type,
     with_explanation,
   } = req.body;
-  const layerType = String(layer_type ?? '').trim().toLowerCase();
+  const layerType = String(layer_type ?? "")
+    .trim()
+    .toLowerCase();
   const id = req.params.id;
 
   try {
@@ -658,6 +662,64 @@ exports.getLayersbyWorkspaceId = async (req, res) => {
   }
 };
 
+exports.getLayersbyWorkspaceIdWithoutGeojson = async (req, res) => {
+  const { workspace_id } = req.params;
+
+  try {
+    // 1. Ambil semua layer aktif berdasarkan workspace_id
+    const layers = await knex("layers")
+      .where("workspace_id", workspace_id)
+      .whereNull("deleted_at");
+
+    // Jika tidak ada layer sama sekali
+    if (!layers || layers.length === 0) {
+      const response = new WithoutDataResource(
+        404,
+        "LAYERS_NOT_FOUND",
+        "Layer Tidak Ditemukan",
+        `Tidak ada layer yang tersedia di workspace ID ${workspace_id}`
+      );
+      return res.status(404).json(response.toResponse());
+    }
+
+    // 2. Serialize setiap layer dengan layersStoreUpdateWithoutGeojsonResource
+    const results = [];
+    for (const layer of layers) {
+      const serialized = await layersStoreUpdateWithoutGeojsonResource(layer);
+      results.push(serialized);
+    }
+
+    // 3. Jika semua layer tidak memiliki shapefile (data kosong)
+    if (results.every((layer) => layer.data.length === 0)) {
+      const response = new WithoutDataResource(
+        404,
+        "SHAPEFILES_NOT_FOUND",
+        "Shapefile Tidak Ditemukan",
+        `Workspace ID ${workspace_id} memiliki layer, tetapi belum ada shapefile yang diunggah.`
+      );
+      return res.status(404).json(response.toResponse());
+    }
+
+    const response = new WithDataResource(
+      200, // HTTP Status Code: Success
+      "SUCCESS_GET_LAYERS",
+      "Berhasil Mengambil Data Layer",
+      `Berhasil mengambil semua layer untuk workspace ID ${workspace_id}`,
+      results
+    );
+    return res.status(200).json(response.toResponse());
+  } catch (error) {
+    logger.error(`| Layers | - Error getLayersbyWorkspaceId: ${error.message}`);
+    const response = new WithoutDataResource(
+      500,
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem. Silakan coba lagi nanti."
+    );
+    return res.status(500).json(response.toResponse());
+  }
+};
+
 exports.getLayerPropertiesbyLayerId = async (req, res) => {
   const { id } = req.params;
 
@@ -774,6 +836,62 @@ exports.updateLayerFeatures = async (req, res) => {
     "HASIL",
   ];
 
+  const toArray = (val) => {
+    if (val == null) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === "string") {
+      try {
+        const parsed = JSON.parse(val);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const parseDeleteIds = (val) => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === "string") {
+      try {
+        const parsed = JSON.parse(val);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const validateFiles = (files, label) => {
+    const allowed = [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+    for (const f of files) {
+      if (!allowed.includes(f.mimetype)) {
+        throw new WithoutDataResource(
+          400,
+          "INVALID_FILE_TYPE",
+          `Tipe Dokumen Salah (${label})`,
+          "File dokumen hanya boleh PDF, DOC, dan DOCX."
+        );
+      }
+      if (f.size > 10 * 1024 * 1024) {
+        throw new WithoutDataResource(
+          400,
+          "FILE_TOO_LARGE",
+          `Ukuran Dokumen Terlalu Besar (${label})`,
+          "Ukuran maksimal tiap file adalah 10MB."
+        );
+      }
+    }
+  };
+
+  const uniq = (arr) => [...new Set(arr)];
+
   try {
     // 0. Validasi table_name ada di database
     const tableCheck = await knex.raw(`SELECT to_regclass(?) AS exists`, [
@@ -854,88 +972,91 @@ exports.updateLayerFeatures = async (req, res) => {
 
     // 3. Ambil document_ids yang sudah ada
     const existing = await trx(table_name).where("id", id).first();
-    let currentIds = existing?.document_ids || [];
+    let currentSk = toArray(existing?.document_sk_ids);
+    let currentOther = toArray(existing?.other_document_ids);
 
-    let deletedIds = delete_document_ids;
-    if (typeof delete_document_ids === "string") {
-      try {
-        deletedIds = JSON.parse(delete_document_ids);
-      } catch (err) {
-        await trx.rollback();
-        const response = new WithoutDataResource(
-          400, // HTTP Status Code: Not Found
-          "INVALID_DELETE_DOC_IDS",
-          "Format delete_document_ids tidak valid",
-          "Pastikan delete_document_ids berbentuk array JSON yang benar, contoh: [1,2,3]"
-        );
-        return res.status(400).json(response.toResponse());
-      }
+    const delIds = parseDeleteIds(delete_document_ids);
+    if (delIds === "__INVALID__") {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400, // HTTP Status Code: Not Found
+        "INVALID_DELETE_DOC_IDS",
+        "Format delete_document_ids tidak valid",
+        "Pastikan delete_document_ids berbentuk array JSON yang benar, contoh: [1,2,3]"
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    if (delIds.length > 0) {
+      await deleteDocuments(delIds);
+      // keluarkan ID yang dihapus dari KEDUA kolom
+      currentSk = currentSk.filter((id_) => !delIds.includes(id_));
+      currentOther = currentOther.filter((id_) => !delIds.includes(id_));
+      await trx(table_name)
+        .where("id", id)
+        .update({
+          document_sk_ids: JSON.stringify(currentSk),
+          other_document_ids: JSON.stringify(currentOther),
+        });
     }
 
     // 4. Proses penghapusan dokumen jika ada
-    if (Array.isArray(deletedIds) && deletedIds.length > 0) {
-      // Hapus dokumen dari tabel documents
-      await trx("documents").whereIn("id", deletedIds).del();
-
-      // Filter keluar dokumen yang dihapus dari currentIds
-      currentIds = currentIds.filter((docId) => !deletedIds.includes(docId));
-
-      // Simpan kembali ke kolom document_ids
-      await trx(table_name)
-        .where("id", id)
-        .update({ document_ids: JSON.stringify(currentIds) });
+    let skFiles = [];
+    let otherFiles = [];
+    if (Array.isArray(req.files)) {
+      skFiles = req.files;
+    } else if (req.files) {
+      skFiles = Array.isArray(req.files.sk_document)
+        ? req.files.sk_document
+        : [];
+      otherFiles = Array.isArray(req.files.other_document)
+        ? req.files.other_document
+        : [];
     }
 
+    // Validasi file
+    validateFiles(skFiles, "sk_document");
+    validateFiles(otherFiles, "other_document");
+
     // 5. Validasi & upload dokumen jika ada
-    let uploadedDocumentIds = [];
-    if (req.files && req.files.length > 0) {
-      if (req.files.length + currentIds.length > 5) {
-        await trx.rollback();
-        return res
-          .status(400)
-          .json(
-            new WithoutDataResource(
-              400,
-              "MAX_TOTAL_FILES",
-              "Terlalu Banyak Dokumen",
-              `Dokumen sebelumnya berjumlah ${currentIds.length}, jika ditambah ${req.files.length} akan melebihi batas maksimal 5 file.`
-            ).toResponse()
-          );
-      }
+    if (skFiles.length + currentSk.length > 5) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "MAX_TOTAL_FILES",
+        "Terlalu Banyak Dokumen (sk_document)",
+        `Dokumen sebelumnya berjumlah ${currentSk.length}, jika ditambah ${skFiles.length} akan melebihi batas maksimal 5 file.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+    if (otherFiles.length + currentOther.length > 5) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "MAX_TOTAL_FILES",
+        "Terlalu Banyak Dokumen (other_document)",
+        `Dokumen sebelumnya berjumlah ${currentOther.length}, jika ditambah ${otherFiles.length} akan melebihi batas maksimal 5 file.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
 
-      for (const file of req.files) {
-        const allowedTypes = [
-          "application/pdf",
-          "application/msword", // for .doc files
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // for .docx files
-        ];
-        if (!allowedTypes.includes(file.mimetype)) {
-          const response = new WithoutDataResource(
-            400,
-            "INVALID_FILE_TYPE",
-            "Tipe Dokumen Salah",
-            "File dokumen hanya boleh PDF, DOC, dan DOCX."
-          );
-          return res.status(400).json(response.toResponse());
-        }
-        if (file.size > 10 * 1024 * 1024) {
-          const response = new WithoutDataResource(
-            400,
-            "FILE_TOO_LARGE",
-            "Ukuran Dokumen Terlalu Besar",
-            "Ukuran maksimal tiap file adalah 10MB."
-          );
-          return res.status(400).json(response.toResponse());
-        }
-      }
+    // Proses upload
+    if (skFiles.length > 0) {
+      const uploadedSk = await uploadDocuments(skFiles);
+      currentSk = uniq([...currentSk, ...uploadedSk.map((d) => d.id)]);
+    }
+    if (otherFiles.length > 0) {
+      const uploadedOther = await uploadDocuments(otherFiles);
+      currentOther = uniq([...currentOther, ...uploadedOther.map((d) => d.id)]);
+    }
 
-      const uploadedDocuments = await uploadDocuments(req.files);
-      uploadedDocumentIds = uploadedDocuments.map((doc) => doc.id);
-      const newIds = [...new Set([...currentIds, ...uploadedDocumentIds])];
-
+    if (skFiles.length > 0 || otherFiles.length > 0) {
       await trx(table_name)
         .where("id", id)
-        .update({ document_ids: JSON.stringify(newIds) });
+        .update({
+          document_sk_ids: JSON.stringify(currentSk),
+          other_document_ids: JSON.stringify(currentOther),
+        });
     }
 
     // 6. Commit transaksi
@@ -1176,11 +1297,17 @@ async function layersResource(layer, depth = 0) {
 
       // Memasukkan dokumen ke dalam setiap fitur geojson berdasarkan document_ids tiap2 fitur
       for (const feature of features) {
-        const documentIds = feature.properties.document_ids || [];
-        const documents = await resolveArrayRelations(documentIds, "documents");
+        const SkDocs = feature.properties.document_sk_ids || [];
+        const OtherDocs = feature.properties.other_document_ids || [];
+        const sk_document = await resolveArrayRelations(SkDocs, "documents");
+        const other_document = await resolveArrayRelations(
+          OtherDocs,
+          "documents"
+        );
 
         // Masukkan dokumen ke dalam features tapi diluar properties
-        feature.documents = documents;
+        feature.sk_document = sk_document;
+        feature.other_document = other_document;
       }
 
       data = {
@@ -1208,7 +1335,7 @@ async function layersResource(layer, depth = 0) {
   return {
     id: layer.id,
     workspace: workspace ? await workspaceResource(workspace) : null,
-    parent_layer: parentLayer
+    parent_layer_id: parentLayer
       ? await layersResource(parentLayer, depth + 1)
       : null,
     name: layer.name,
@@ -1282,7 +1409,7 @@ async function layersStoreUpdateWithoutGeojsonResource(layer, depth = 0) {
   return {
     id: layer.id,
     workspace: workspace ? await workspaceResource(workspace) : null,
-    parent_layer: parentLayer
+    parent_layer_id: parentLayer
       ? await layersResource(parentLayer, depth + 1)
       : null,
     name: layer.name,
@@ -1334,11 +1461,17 @@ async function layersSingleFeatureWithoutGeojsonResource(
 
       // Memasukkan dokumen ke dalam setiap fitur geojson berdasarkan document_ids tiap2 fitur
       for (const feature of features) {
-        const documentIds = feature.properties.document_ids || [];
-        const documents = await resolveArrayRelations(documentIds, "documents");
+        const SkDocs = feature.properties.document_sk_ids || [];
+        const OtherDocs = feature.properties.other_document_ids || [];
+        const sk_document = await resolveArrayRelations(SkDocs, "documents");
+        const other_document = await resolveArrayRelations(
+          OtherDocs,
+          "documents"
+        );
 
         // Masukkan dokumen ke dalam features tapi diluar properties
-        feature.documents = documents;
+        feature.sk_document = sk_document;
+        feature.other_document = other_document;
 
         delete feature.geometry;
       }
@@ -1370,7 +1503,7 @@ async function layersSingleFeatureWithoutGeojsonResource(
   return {
     id: layer.id,
     workspace: workspace ? await workspaceResource(workspace) : null,
-    parent_layer: parentLayer
+    parent_layer_id: parentLayer
       ? await layersResource(parentLayer, depth + 1)
       : null,
     name: layer.name,
@@ -1421,29 +1554,57 @@ async function handleShapefileUpload(
 async function handleDeleteTableWithDocument(tableName, layerDocumentId) {
   try {
     // 1. Cek apakah kolom "document_ids" ada di dalam table
-    const columnCheck = await knex("information_schema.columns")
+    const cols = await knex("information_schema.columns")
       .select("column_name")
-      .where({
-        table_name: tableName,
-        column_name: "document_ids",
-      });
+      .where({ table_name: tableName })
+      .whereIn("column_name", ["document_sk_ids", "other_document_ids"]);
+
+    const hasSk = cols.some((c) => c.column_name === "document_sk_ids");
+    const hasOther = cols.some((c) => c.column_name === "other_document_ids");
 
     let collectedDocIds = [];
 
-    // 2. Jika kolomnya ada, ambil dan proses datanya
-    if (columnCheck.length > 0) {
-      const records = await knex.select("document_ids").from(tableName);
+    const toArray = (val) => {
+      if (val == null) return [];
+      if (Array.isArray(val)) return val;
+      if (typeof val === "object") {
+        return Array.isArray(val) ? val : [];
+      }
+      if (typeof val === "string") {
+        try {
+          const parsed = JSON.parse(val);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    };
 
-      collectedDocIds = records
-        .flatMap((row) => row.document_ids || [])
-        .filter((v, i, arr) => arr.indexOf(v) === i); // hapus duplikat
+    // 2) Ambil semua nilai kolom yang ada & kumpulkan ID unik
+    if (hasSk || hasOther) {
+      const selectCols = [];
+      if (hasSk) selectCols.push("document_sk_ids");
+      if (hasOther) selectCols.push("other_document_ids");
 
+      const records = await knex.select(selectCols).from(tableName);
+
+      const set = new Set();
+      for (const row of records) {
+        if (hasSk) {
+          for (const v of toArray(row.document_sk_ids)) set.add(v);
+        }
+        if (hasOther) {
+          for (const v of toArray(row.other_document_ids)) set.add(v);
+        }
+      }
+      collectedDocIds = Array.from(set);
       if (collectedDocIds.length > 0) {
         await deleteDocuments(collectedDocIds);
       }
     }
 
-    // 3. Hapus dokumen utama dari layer jika ada dan belum termasuk di array
+    // 3) Hapus dokumen utama layer (jika ada) & belum termasuk
     if (layerDocumentId && !collectedDocIds.includes(layerDocumentId)) {
       await deleteDocuments([layerDocumentId]);
     }

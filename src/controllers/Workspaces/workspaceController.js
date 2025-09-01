@@ -249,7 +249,8 @@ exports.show = async (req, res) => {
 
 exports.update = async (req, res) => {
   const trx = await knex.transaction();
-  const { title, description, workspace_category_id, delete_document_ids } = req.body;
+  const { title, description, workspace_category_id, delete_document_ids } =
+    req.body;
   const id = req.params.id;
 
   try {
@@ -330,9 +331,7 @@ exports.update = async (req, res) => {
     // 9. Commit
     await trx.commit();
 
-    const savedWorkspace = await knex("workspaces")
-      .where("id", id)
-      .first();
+    const savedWorkspace = await knex("workspaces").where("id", id).first();
     const result = await workspaceResource(savedWorkspace);
 
     const response = new WithDataResource(
@@ -360,6 +359,39 @@ exports.destroy = async (req, res) => {
   const id = req.params.id;
   const trx = await knex.transaction();
 
+  // helper: parse array jsonb/text/null -> array
+  const toArray = (val) => {
+    if (val == null) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === "object") return Array.isArray(val) ? val : [];
+    if (typeof val === "string") {
+      try {
+        const parsed = JSON.parse(val);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  // helper: cek tabel ada
+  const tableExists = async (t, txx) => {
+    const r = await txx.raw(`SELECT to_regclass(?) AS exists`, [t]);
+    return Boolean(r?.rows?.[0]?.exists);
+  };
+
+  // helper: cek kolom ada
+  const getDocCols = async (t, txx) => {
+    const rows = await txx("information_schema.columns")
+      .select("column_name")
+      .where({ table_name: t })
+      .whereIn("column_name", ["document_sk_ids", "other_document_ids"]);
+    const hasSk = rows.some((r) => r.column_name === "document_sk_ids");
+    const hasOther = rows.some((r) => r.column_name === "other_document_ids");
+    return { hasSk, hasOther };
+  };
+
   try {
     // 1. Cari data workspace
     const workspace = await trx("workspaces").where("id", id).first();
@@ -381,34 +413,53 @@ exports.destroy = async (req, res) => {
     const tableNames = layers.map((l) => l.table_name);
     const layerDocumentIds = layers.map((l) => l.document_id).filter(Boolean);
 
-    // 3. Ambil semua document_ids dari semua tabel dinamis
-    let embeddedDocumentIds = [];
+    // 3) kumpulkan semua dokumen tertanam dari setiap tabel dinamis (dua kolom baru)
+    const embeddedSet = new Set();
     for (const tableName of tableNames) {
-      const rows = await trx(tableName).select("document_ids"); // kolom berupa jsonb array
+      // skip kalau tabelnya memang sudah tidak ada
+      const exists = await tableExists(tableName, trx);
+      if (!exists) {
+        logger.warn(
+          `| Workspace | - Tabel '${tableName}' tidak ditemukan, skip koleksi dokumen.`
+        );
+        continue;
+      }
+
+      const { hasSk, hasOther } = await getDocCols(tableName, trx);
+      if (!hasSk && !hasOther) {
+        // nggak ada kolom dokumen di tabel ini
+        continue;
+      }
+
+      const selectCols = [];
+      if (hasSk) selectCols.push("document_sk_ids");
+      if (hasOther) selectCols.push("other_document_ids");
+
+      const rows = await trx.select(selectCols).from(tableName);
       for (const row of rows) {
-        const ids = Array.isArray(row.document_ids)
-          ? row.document_ids
-          : JSON.parse(row.document_ids || "[]");
-        embeddedDocumentIds.push(...ids);
+        if (hasSk)
+          for (const v of toArray(row.document_sk_ids)) embeddedSet.add(v);
+        if (hasOther)
+          for (const v of toArray(row.other_document_ids)) embeddedSet.add(v);
       }
     }
 
-    // 4. Hapus semua dokumen
-    const toDelete = [
-      ...new Set([
-        ...embeddedDocumentIds,
-        ...layerDocumentIds,
-        workspace.document_id,
-      ]),
-    ].filter(Boolean);
+    // 4) siapkan daftar final untuk deleteDocuments (tambahkan dokumen layer & workspace)
+    if (workspace.document_id) embeddedSet.add(workspace.document_id);
+    for (const lid of layerDocumentIds) embeddedSet.add(lid);
 
-    if (toDelete.length > 0) {
-      await deleteDocuments(toDelete);
-    }
+    const toDelete = Array.from(embeddedSet).filter(Boolean);
 
-    // 5. Delete isi tabel dinamis
+    // 5) HAPUS isi tabel dinamis (atau bisa DROP kalau kebijakanmu)
     for (const tableName of tableNames) {
-      await trx(tableName).del(); // atau truncate jika tidak ada FK
+      const exists = await tableExists(tableName, trx);
+      if (!exists) {
+        logger.warn(
+          `| Workspace | - Tabel '${tableName}' tidak ditemukan saat delete isi, skip.`
+        );
+        continue;
+      }
+      await trx.raw(`DROP TABLE IF EXISTS "${tableName}" CASCADE`);
     }
 
     // 6. Delete layers
@@ -417,7 +468,24 @@ exports.destroy = async (req, res) => {
     // 7. Delete workspace
     await trx("workspaces").where("id", id).del();
 
+    // 8) commit dulu agar relasi sudah putus
     await trx.commit();
+
+    // 9) baru hapus file fisik + row 'documents'
+    if (toDelete.length > 0) {
+      try {
+        const deletedIds = await deleteDocuments(toDelete);
+        if (deletedIds.length !== toDelete.length) {
+          logger.warn(
+            `| Workspace | - Tidak semua dokumen terhapus. Req=${toDelete.length}, OK=${deletedIds.length}`
+          );
+        }
+      } catch (e) {
+        logger.error(
+          `| Workspace | - Gagal deleteDocuments: ${e.message}`
+        );
+      }
+    }
 
     const response = new WithoutDataResource(
       200,

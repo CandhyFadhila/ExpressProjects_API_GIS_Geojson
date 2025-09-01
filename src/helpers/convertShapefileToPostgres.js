@@ -116,13 +116,19 @@ async function alterTableForMeta(schemaName, tableName) {
       ADD COLUMN IF NOT EXISTS layer_id BIGINT;
     `);
 
-    // 2. Tambahkan kolom document_ids jika belum ada
+    // 2. Tambahkan kolom document_sk_ids jika belum ada
     await client.query(`
       ALTER TABLE "${schemaName}"."${tableName}"
-      ADD COLUMN IF NOT EXISTS document_ids JSONB DEFAULT '[]';
+      ADD COLUMN IF NOT EXISTS document_sk_ids JSONB DEFAULT '[]';
     `);
 
-    // 3. Tambahkan kolom color jika belum ada
+    // 3. Tambahkan kolom other_document_ids jika belum ada
+    await client.query(`
+      ALTER TABLE "${schemaName}"."${tableName}"
+      ADD COLUMN IF NOT EXISTS other_document_ids JSONB DEFAULT '[]';
+    `);
+
+    // 4. Tambahkan kolom color jika belum ada
     await client.query(`
       ALTER TABLE "${schemaName}"."${tableName}"
       ADD COLUMN IF NOT EXISTS color VARCHAR(9);

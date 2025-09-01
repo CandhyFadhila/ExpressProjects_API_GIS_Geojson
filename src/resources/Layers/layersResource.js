@@ -28,7 +28,7 @@ async function layersResource(layer, depth = 0) {
   return {
     id: layer.id,
     workspace: workspace ? await workspaceResource(workspace) : null,
-    parent_layer: parentLayer
+    parent_layer_id: parentLayer
       ? await layersResource(parentLayer, depth + 1)
       : null,
     name: layer.name,
