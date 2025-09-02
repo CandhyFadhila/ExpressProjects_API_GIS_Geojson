@@ -789,9 +789,11 @@ exports.getLayerPropertiesbyLayerId = async (req, res) => {
 
     const excluded = new Set([
       "id",
+      "gid",
       "geom",
       "layer_id",
-      "document_ids",
+      "document_sk_ids",
+      "other_document_ids",
       "color",
     ]);
     const properties = (columnsQuery.rows || [])
