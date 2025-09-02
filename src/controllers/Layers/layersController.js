@@ -827,7 +827,13 @@ exports.getLayerPropertiesbyLayerId = async (req, res) => {
 };
 
 exports.updateLayerFeatures = async (req, res) => {
-  const { table_name, layer_id, properties, delete_document_ids } = req.body;
+  const {
+    table_name,
+    layer_id,
+    properties,
+    delete_sk_document_ids,
+    delete_other_document_ids
+  } = req.body;
   const trx = await knex.transaction();
   const allowedUpdateColumns = [
     "PARAPIHAKB",
@@ -856,12 +862,12 @@ exports.updateLayerFeatures = async (req, res) => {
     if (typeof val === "string") {
       try {
         const parsed = JSON.parse(val);
-        return Array.isArray(parsed) ? parsed : [];
+        return Array.isArray(parsed) ? parsed : "__INVALID__";
       } catch {
-        return [];
+        return "__INVALID__";
       }
     }
-    return [];
+    return "__INVALID__";
   };
 
   const validateFiles = (files, label) => {
@@ -975,23 +981,53 @@ exports.updateLayerFeatures = async (req, res) => {
     let currentSk = toArray(existing?.document_sk_ids);
     let currentOther = toArray(existing?.other_document_ids);
 
-    const delIds = parseDeleteIds(delete_document_ids);
-    if (delIds === "__INVALID__") {
+    let delSkIds = parseDeleteIds(delete_sk_document_ids);
+    if (delSkIds === "__INVALID__") {
       await trx.rollback();
       const response = new WithoutDataResource(
-        400, // HTTP Status Code: Not Found
+        400,
         "INVALID_DELETE_DOC_IDS",
-        "Format delete_document_ids tidak valid",
-        "Pastikan delete_document_ids berbentuk array JSON yang benar, contoh: [1,2,3]"
+        "Format delete_sk_document_ids tidak valid",
+        "Pastikan delete_sk_document_ids berbentuk array JSON yang benar, contoh: [1,2,3]"
+      );
+      return res.status(400).json(response.toResponse());
+    }
+    let delOtherIds = parseDeleteIds(delete_other_document_ids);
+    if (delOtherIds === "__INVALID__") {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "INVALID_DELETE_DOC_IDS",
+        "Format delete_other_document_ids tidak valid",
+        "Pastikan delete_other_document_ids berbentuk array JSON yang benar, contoh: [1,2,3]"
       );
       return res.status(400).json(response.toResponse());
     }
 
-    if (delIds.length > 0) {
-      await deleteDocuments(delIds);
-      // keluarkan ID yang dihapus dari KEDUA kolom
-      currentSk = currentSk.filter((id_) => !delIds.includes(id_));
-      currentOther = currentOther.filter((id_) => !delIds.includes(id_));
+    if (delSkIds.length > 0 || delOtherIds.length > 0) {
+      const delSkSet = new Set(delSkIds);
+      const delOtherSet = new Set(delOtherIds);
+
+      // simpan apa saja yang benar2 terhapus dari masing2 kolom
+      const removedFromSk = currentSk.filter((x) => delSkSet.has(x));
+      const removedFromOther = currentOther.filter((x) => delOtherSet.has(x));
+
+      // filter keluar dari masing-masing kolom
+      currentSk = currentSk.filter((x) => !delSkSet.has(x));
+      currentOther = currentOther.filter((x) => !delOtherSet.has(x));
+
+      // hitung file fisik yang aman untuk dihapus:
+      // union(removed) MINUS (ID yang masih direferensikan di salah satu kolom setelah update)
+      const unionRemoved = uniq([...removedFromSk, ...removedFromOther]);
+      const stillReferenced = new Set([...currentSk, ...currentOther]);
+      const toPhysicallyDelete = unionRemoved.filter(
+        (x) => !stillReferenced.has(x)
+      );
+
+      if (toPhysicallyDelete.length > 0) {
+        await deleteDocuments(toPhysicallyDelete);
+      }
+
       await trx(table_name)
         .where("id", id)
         .update({
