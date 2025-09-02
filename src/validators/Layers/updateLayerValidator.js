@@ -18,7 +18,13 @@ exports.updateLayerValidator = [
     }),
 
   body("parent_layer_id")
-    .optional()
+    .customSanitizer((v) => {
+      if (v === undefined || v === null) return undefined;
+      const s = String(v).trim().toLowerCase();
+      if (s === "" || s === "undefined" || s === "null") return undefined;
+      return s;
+    })
+    .optional({ nullable: true })
     .isInt()
     .withMessage("Parent Layer harus berupa angka.")
     .bail()
@@ -57,7 +63,9 @@ exports.updateLayerValidator = [
   body("layer_type")
     .optional()
     .isIn(["fill", "line", "symbol"])
-    .withMessage("Tipe layer yang boleh digunakan hanya Fill, Line, atau Symbol."),
+    .withMessage(
+      "Tipe layer yang boleh digunakan hanya Fill, Line, atau Symbol."
+    ),
 
   body("with_explanation")
     .optional()

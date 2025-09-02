@@ -18,7 +18,13 @@ exports.storeLayerValidator = [
     }),
 
   body("parent_layer_id")
-    .optional()
+    .customSanitizer((v) => {
+      if (v === undefined || v === null) return undefined;
+      const s = String(v).trim().toLowerCase();
+      if (s === "" || s === "undefined" || s === "null") return undefined;
+      return s;
+    })
+    .optional({ nullable: true })
     .isInt()
     .withMessage("Parent Layer harus berupa angka.")
     .bail()
@@ -56,7 +62,9 @@ exports.storeLayerValidator = [
     .notEmpty()
     .withMessage("Tipe layer tidak boleh kosong.")
     .isIn(["fill", "line", "symbol"])
-    .withMessage("Tipe layer yang boleh digunakan hanya Fill, Line, atau Symbol."),
+    .withMessage(
+      "Tipe layer yang boleh digunakan hanya Fill, Line, atau Symbol."
+    ),
 
   body("with_explanation")
     .optional()
@@ -78,5 +86,5 @@ exports.storeLayerValidator = [
     .matches(/^[a-zA-Z0-9_]+$/)
     .withMessage(
       "Nama tabel hanya boleh mengandung huruf, angka, dan underscore."
-    )
+    ),
 ];
