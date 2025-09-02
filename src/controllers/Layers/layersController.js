@@ -834,7 +834,7 @@ exports.updateLayerFeatures = async (req, res) => {
     layer_id,
     properties,
     delete_sk_document_ids,
-    delete_other_document_ids
+    delete_other_document_ids,
   } = req.body;
   const trx = await knex.transaction();
   const allowedUpdateColumns = [
@@ -959,23 +959,41 @@ exports.updateLayerFeatures = async (req, res) => {
     }
 
     // 2.2 Filter hanya kolom yang diizinkan untuk benar-benar diupdate
-    const filteredUpdateFields = Object.fromEntries(
-      Object.entries(updateFields).filter(([key]) =>
-        allowedUpdateColumns.includes(key)
+    const cleanedUpdateFields = Object.fromEntries(
+      Object.entries(updateFields).filter(
+        ([key, val]) => allowedUpdateColumns.includes(key) && val !== undefined
       )
     );
-    const updated = await trx(table_name)
-      .where("id", id)
-      .update(filteredUpdateFields);
-    if (updated === 0) {
-      await trx.rollback();
-      const response = new WithoutDataResource(
-        404, // HTTP Status Code: Not Found
-        "DATA_NOT_FOUND",
-        "Data tidak ditemukan",
-        `Tidak ada baris dengan ID ${id} pada tabel ${table_name}.`
-      );
-      return res.status(404).json(response.toResponse());
+
+    let updated = 0;
+    if (Object.keys(cleanedUpdateFields).length > 0) {
+      // Hanya update jika ada kolom valid
+      updated = await trx(table_name)
+        .where("id", id)
+        .update(cleanedUpdateFields);
+      if (updated === 0) {
+        await trx.rollback();
+        const response = new WithoutDataResource(
+          404,
+          "DATA_NOT_FOUND",
+          "Data tidak ditemukan",
+          `Tidak ada baris dengan ID ${id} pada tabel ${table_name}.`
+        );
+        return res.status(404).json(response.toResponse());
+      }
+    } else {
+      // Tidak ada kolom yang perlu diupdate (mis. hanya hapus/upload dokumen)
+      const existsRow = await trx(table_name).where("id", id).first();
+      if (!existsRow) {
+        await trx.rollback();
+        const response = new WithoutDataResource(
+          404,
+          "DATA_NOT_FOUND",
+          "Data tidak ditemukan",
+          `Tidak ada baris dengan ID ${id} pada tabel ${table_name}.`
+        );
+        return res.status(404).json(response.toResponse());
+      }
     }
 
     // 3. Ambil document_ids yang sudah ada
