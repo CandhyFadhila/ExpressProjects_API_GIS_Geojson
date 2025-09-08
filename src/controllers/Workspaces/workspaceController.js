@@ -94,7 +94,7 @@ exports.store = async (req, res) => {
       "Maaf anda tidak memiliki akses untuk melakukan proses ini."
     );
     logger.info(
-      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+      `| Workspace | - Akses ditolak (bukan super admin), userId=${req.userId}`
     );
     return res.status(403).json(response.toResponse());
   }
@@ -272,7 +272,7 @@ exports.update = async (req, res) => {
       "Maaf anda tidak memiliki akses untuk melakukan proses ini."
     );
     logger.info(
-      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+      `| Workspace | - Akses ditolak (bukan super admin), userId=${req.userId}`
     );
     return res.status(403).json(response.toResponse());
   }
@@ -394,7 +394,7 @@ exports.destroy = async (req, res) => {
       "Maaf anda tidak memiliki akses untuk melakukan proses ini."
     );
     logger.info(
-      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+      `| Workspace | - Akses ditolak (bukan super admin), userId=${req.userId}`
     );
     return res.status(403).json(response.toResponse());
   }
