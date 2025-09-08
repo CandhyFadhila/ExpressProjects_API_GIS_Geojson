@@ -3,6 +3,7 @@ const WithoutDataResource = require("../resources/WithoutDataResource");
 const { isTokenBlacklisted, blacklistToken } = require("../utils/tokenBlacklist");
 const logger = require("../utils/logger");
 const knex = require("../config/database");
+const JWT_SECRET = process.env.JWT_SECRET_KEY || "secretkey";
 
 // Middleware untuk autentikasi menggunakan JWT
 const authMiddleware = async (req, res, next) => {
@@ -36,7 +37,7 @@ const authMiddleware = async (req, res, next) => {
   }
 
   // Verifikasi token
-  jwt.verify(token, "secretkey", async (err, decoded) => {
+  jwt.verify(token, JWT_SECRET, async (err, decoded) => {
     if (err && err.name === "TokenExpiredError") {
       const response = new WithoutDataResource(
         401, // HTTP Status Code: Unauthorized

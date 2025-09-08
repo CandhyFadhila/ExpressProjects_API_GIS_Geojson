@@ -11,6 +11,7 @@ const redisClient = require("../config/redisClient");
 const WithDataResource = require("../resources/WithDataResource");
 const WithoutDataResource = require("../resources/WithoutDataResource");
 const renderEmailTemplate = require("../utils/emailOTP/renderEmailTemplate");
+const JWT_SECRET = process.env.JWT_SECRET_KEY || "secretkey";
 
 // ========== LOGIN CONTROLLER ==========
 exports.login = async (req, res) => {
@@ -66,7 +67,7 @@ exports.login = async (req, res) => {
 
     // Create JWT token
     const payload = { userId: user.id };
-    const token = jwt.sign(payload, "secretkey");
+    const token = jwt.sign(payload, JWT_SECRET);
 
     // Log successful login
     logger.info(

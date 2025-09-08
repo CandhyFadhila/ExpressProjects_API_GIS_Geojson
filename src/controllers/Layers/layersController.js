@@ -22,8 +22,23 @@ const {
 } = require("../../helpers/resolveArrayRelations");
 const serializeLayer = require("../../resources/Layers/serializeLayer");
 const { mapValuesToColor } = require("../../helpers/colorHelper");
+const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
 
 exports.store = async (req, res) => {
+  const isSuperAdmin = await isSuperAdminFromRequest(req);
+  if (!isSuperAdmin) {
+    const response = new WithoutDataResource(
+      403,
+      "NOT_SUPER_ADMIN",
+      "Akses ditolak",
+      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
+    );
+    logger.info(
+      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+    );
+    return res.status(403).json(response.toResponse());
+  }
+
   const trx = await knex.transaction();
   const {
     workspace_id,
@@ -273,6 +288,20 @@ exports.store = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  const isSuperAdmin = await isSuperAdminFromRequest(req);
+  if (!isSuperAdmin) {
+    const response = new WithoutDataResource(
+      403,
+      "NOT_SUPER_ADMIN",
+      "Akses ditolak",
+      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
+    );
+    logger.info(
+      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+    );
+    return res.status(403).json(response.toResponse());
+  }
+
   const trx = await knex.transaction();
   const {
     workspace_id,
@@ -558,6 +587,20 @@ exports.update = async (req, res) => {
 };
 
 exports.destroy = async (req, res) => {
+  const isSuperAdmin = await isSuperAdminFromRequest(req);
+  if (!isSuperAdmin) {
+    const response = new WithoutDataResource(
+      403,
+      "NOT_SUPER_ADMIN",
+      "Akses ditolak",
+      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
+    );
+    logger.info(
+      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+    );
+    return res.status(403).json(response.toResponse());
+  }
+
   const id = req.params.id;
   const trx = await knex.transaction();
 
@@ -829,6 +872,20 @@ exports.getLayerPropertiesbyLayerId = async (req, res) => {
 };
 
 exports.updateLayerFeatures = async (req, res) => {
+  const isSuperAdmin = await isSuperAdminFromRequest(req);
+  if (!isSuperAdmin) {
+    const response = new WithoutDataResource(
+      403,
+      "NOT_SUPER_ADMIN",
+      "Akses ditolak",
+      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
+    );
+    logger.info(
+      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+    );
+    return res.status(403).json(response.toResponse());
+  }
+
   const {
     table_name,
     layer_id,
@@ -1150,6 +1207,20 @@ exports.updateLayerFeatures = async (req, res) => {
 };
 
 exports.updateLayerColor = async (req, res) => {
+  const isSuperAdmin = await isSuperAdminFromRequest(req);
+  if (!isSuperAdmin) {
+    const response = new WithoutDataResource(
+      403,
+      "NOT_SUPER_ADMIN",
+      "Akses ditolak",
+      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
+    );
+    logger.info(
+      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+    );
+    return res.status(403).json(response.toResponse());
+  }
+
   const { id } = req.params;
   const { property_key, colorscale } = req.body;
 

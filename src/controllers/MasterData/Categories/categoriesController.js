@@ -9,6 +9,7 @@ const {
 const WithDataResource = require("../../../resources/WithDataResource");
 const WithoutDataResource = require("../../../resources/WithoutDataResource");
 const categoriesResource = require("../../../resources/Categories/categoriesResource");
+const { isSuperAdminFromRequest } = require("../../../helpers/roleHelper");
 
 exports.index = async (req, res) => {
   try {
@@ -74,6 +75,20 @@ exports.index = async (req, res) => {
 };
 
 exports.store = async (req, res) => {
+  const isSuperAdmin = await isSuperAdminFromRequest(req);
+  if (!isSuperAdmin) {
+    const response = new WithoutDataResource(
+      403,
+      "NOT_SUPER_ADMIN",
+      "Akses ditolak",
+      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
+    );
+    logger.info(
+      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+    );
+    return res.status(403).json(response.toResponse());
+  }
+
   const trx = await knex.transaction();
   const { label } = req.body;
 
@@ -185,6 +200,20 @@ exports.show = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
+  const isSuperAdmin = await isSuperAdminFromRequest(req);
+  if (!isSuperAdmin) {
+    const response = new WithoutDataResource(
+      403,
+      "NOT_SUPER_ADMIN",
+      "Akses ditolak",
+      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
+    );
+    logger.info(
+      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+    );
+    return res.status(403).json(response.toResponse());
+  }
+
   const trx = await knex.transaction();
 
   try {
@@ -272,6 +301,20 @@ exports.update = async (req, res) => {
 };
 
 exports.destroy = async (req, res) => {
+  const isSuperAdmin = await isSuperAdminFromRequest(req);
+  if (!isSuperAdmin) {
+    const response = new WithoutDataResource(
+      403,
+      "NOT_SUPER_ADMIN",
+      "Akses ditolak",
+      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
+    );
+    logger.info(
+      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+    );
+    return res.status(403).json(response.toResponse());
+  }
+
   const id = req.params.id;
   const trx = await knex.transaction();
 
@@ -318,6 +361,20 @@ exports.destroy = async (req, res) => {
 };
 
 exports.restore = async (req, res) => {
+  const isSuperAdmin = await isSuperAdminFromRequest(req);
+  if (!isSuperAdmin) {
+    const response = new WithoutDataResource(
+      403,
+      "NOT_SUPER_ADMIN",
+      "Akses ditolak",
+      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
+    );
+    logger.info(
+      `| Categories | - Akses ditolak (bukan super admin), userId=${req.userId}`
+    );
+    return res.status(403).json(response.toResponse());
+  }
+
   const { id } = req.params;
   const trx = await knex.transaction();
 
