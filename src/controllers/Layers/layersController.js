@@ -23,6 +23,7 @@ const {
 const serializeLayer = require("../../resources/Layers/serializeLayer");
 const { mapValuesToColor } = require("../../helpers/colorHelper");
 const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
+const { trimZeroDecimalsDeep } = require("../../helpers/numberTrim");
 
 exports.store = async (req, res) => {
   const isSuperAdmin = await isSuperAdminFromRequest(req);
@@ -1424,6 +1425,12 @@ async function layersResource(layer, depth = 0) {
 
       // Memasukkan dokumen ke dalam setiap fitur geojson berdasarkan document_ids tiap2 fitur
       for (const feature of features) {
+        feature.properties = trimZeroDecimalsDeep(feature.properties, {
+          returnType: "string",
+          maxFractionDigits: 12,
+          onlyIfHasDecimalPoint: true, // kunci: string tanpa '.' tidak akan di-trim (contoh HAK)
+        });
+
         const SkDocs = feature.properties.document_sk_ids || [];
         const OtherDocs = feature.properties.other_document_ids || [];
         const sk_document = await resolveArrayRelations(SkDocs, "documents");
