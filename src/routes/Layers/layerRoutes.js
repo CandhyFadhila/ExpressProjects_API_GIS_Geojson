@@ -79,7 +79,7 @@ router.get(
   layersController.getLayerPropertiesbyLayerId
 );
 
-router.get(
+router.post(
   "/property-value/:id",
   rateLimiter,
   authMiddleware,
