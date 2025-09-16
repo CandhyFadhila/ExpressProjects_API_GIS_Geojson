@@ -79,6 +79,13 @@ router.get(
   layersController.getLayerPropertiesbyLayerId
 );
 
+router.get(
+  "/property-value/:id",
+  rateLimiter,
+  authMiddleware,
+  layersController.getLayerPropertiesValuebyLayerId
+);
+
 router.patch(
   "/update-color/:id",
   rateLimiter,

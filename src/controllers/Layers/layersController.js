@@ -872,6 +872,165 @@ exports.getLayerPropertiesbyLayerId = async (req, res) => {
   }
 };
 
+exports.getLayerPropertiesValuebyLayerId = async (req, res) => {
+  const { id } = req.params;
+  const { property_key } = req.body;
+
+  try {
+    const keyRaw = String(property_key ?? "").trim();
+    if (!keyRaw) {
+      const response = new WithoutDataResource(
+        400,
+        "FAILED_VALIDATION",
+        "Format Data Tidak Sesuai Ketentuan",
+        "property_key wajib diisi."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 1. Ambil layer berdasarkan layer_id
+    const layer = await knex("layers")
+      .select("id", "table_name")
+      .where("id", id)
+      .whereNull("deleted_at")
+      .first();
+
+    // 2. Jika layer tidak ditemukan
+    if (!layer) {
+      const response = new WithoutDataResource(
+        200,
+        "DATA_NOT_FOUND",
+        "Data Tidak Ditemukan",
+        `Layer dengan ID '${id}' tidak ditemukan.`
+      );
+      return res.status(200).json(response.toResponse());
+    }
+
+    // 3. Ambil table_name & pecah schema bila ada
+    const tableNameRaw = layer.table_name;
+    let schema = "public";
+    let tableName = tableNameRaw;
+
+    if (tableNameRaw.includes(".")) {
+      const [sch, tbl] = tableNameRaw.split(".", 2);
+      schema = sch || "public";
+      tableName = tbl;
+    }
+
+    // 4. Cek apakah tabel ada
+    const existsQuery = await knex.raw(
+      `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = ? AND table_name = ?
+      ) AS exists;
+      `,
+      [schema, tableName]
+    );
+
+    const tableExists = existsQuery.rows?.[0]?.exists === true;
+    if (!tableExists) {
+      const response = new WithoutDataResource(
+        404,
+        "TABLE_NOT_FOUND",
+        "Tabel Tidak Ditemukan",
+        `Tabel '${tableNameRaw}' tidak ditemukan pada schema '${schema}'.`
+      );
+      return res.status(404).json(response.toResponse());
+    }
+
+    // 5. Ambil semua kolom selain yang dikecualikan
+    const columnsQuery = await knex.raw(
+      `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = ? AND table_name = ?
+      ORDER BY ordinal_position;
+      `,
+      [schema, tableName]
+    );
+
+    const excluded = new Set([
+      "id",
+      "gid",
+      "geom",
+      "layer_id",
+      "document_sk_ids",
+      "other_document_ids",
+    ]);
+    const allCols = (columnsQuery.rows || []).map((r) => r.column_name);
+    const properties = allCols.filter(
+      (name) => !excluded.has(String(name).toLowerCase())
+    );
+
+    const keyMatched =
+      properties.includes(keyRaw) ? keyRaw : null;
+
+    if (!keyMatched) {
+      const response = new WithoutDataResource(
+        400,
+        "FAILED_VALIDATION",
+        "Format Data Tidak Sesuai Ketentuan",
+        `Kolom '${keyRaw}' tidak ditemukan pada tabel '${tableNameRaw}'.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    const hasColor = allCols.some((c) => c.toLowerCase() === "color");
+    if (!hasColor) {
+      const response = new WithoutDataResource(
+        400,
+        "FAILED_VALIDATION",
+        "Format Data Tidak Sesuai Ketentuan",
+        `Kolom 'color' tidak ditemukan pada tabel '${tableNameRaw}'.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    const rows = await knex
+      .withSchema(schema)
+      .from(tableName)
+      .select(
+        knex.raw('DISTINCT ON (??) ?? AS "value", "color"', [
+          keyMatched,
+          keyMatched,
+        ])
+      )
+      .whereNotNull(keyMatched)
+      .andWhereRaw("btrim(CAST(?? AS TEXT)) <> ''", [keyMatched])
+      .orderByRaw('?? ASC, (color IS NULL), "color" ASC', [keyMatched]);
+
+    const values = rows.map((r) => ({ value: r.value, color: r.color }));
+
+    const result = {
+      table_name: tableNameRaw,
+      property_key: keyMatched,
+      values,
+    };
+
+    const response = new WithDataResource(
+      200,
+      "SUCCESS_GET_DATA",
+      "Berhasil Mengambil Data",
+      `Berhasil mengambil daftar properti_value dari tabel '${tableNameRaw}' dan properti_key '${property_key}'.`,
+      result
+    );
+    return res.status(200).json(response.toResponse());
+  } catch (error) {
+    logger.error(
+      `| Layers | - Error function getLayerPropertiesValuebyLayerId: ${error.message}`
+    );
+    const response = new WithoutDataResource(
+      500,
+      "SERVER_ERROR",
+      "Server Sedang Error",
+      "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
+    );
+    res.status(500).json(response.toResponse());
+  }
+};
+
 exports.updateLayerFeatures = async (req, res) => {
   const isSuperAdmin = await isSuperAdminFromRequest(req);
   if (!isSuperAdmin) {
