@@ -1573,7 +1573,50 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
   const { property_key, property_values } = req.body;
 
   try {
-    // 2. Ambil layer berdasarkan layer_id
+    const keyRaw = String(property_key ?? "").trim();
+    if (!keyRaw) {
+      const response = new WithoutDataResource(
+        400,
+        "FAILED_VALIDATION",
+        "Format Data Tidak Sesuai Ketentuan",
+        "property_key wajib diisi."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    if (!Array.isArray(property_values) || property_values.length === 0) {
+      const response = new WithoutDataResource(
+        400,
+        "FAILED_VALIDATION",
+        "Format Data Tidak Sesuai Ketentuan",
+        "property_values harus berupa array berisi minimal satu item."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    const pairsMap = new Map();
+    for (const item of property_values) {
+      const pv = item?.property_value;
+      const col = String(item?.color ?? "").trim();
+      if (pv === undefined || pv === null) continue;
+      if (col.length === 0) continue; // abaikan jika color kosong
+      pairsMap.set(pv, col);
+    }
+    const pairs = Array.from(pairsMap, ([property_value, color]) => ({
+      property_value,
+      color,
+    }));
+    if (pairs.length === 0) {
+      const response = new WithoutDataResource(
+        400,
+        "FAILED_VALIDATION",
+        "Format Data Tidak Sesuai Ketentuan",
+        "Semua item property_values tidak valid (property_value/color kosong)."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 1. Ambil layer
     const layer = await knex("layers")
       .select("id", "table_name")
       .where("id", id)
@@ -1622,17 +1665,17 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
       return res.status(404).json(response.toResponse());
     }
 
-    // 4. Cek kolom color sudah ready apa belum
-    const colorColCheck = await knex.raw(
+    // 4. Cek kolom color & kolom property_key
+    const columnsQuery = await knex.raw(
       `
-      SELECT 1
+      SELECT column_name
       FROM information_schema.columns
-      WHERE table_schema = ? AND table_name = ? AND column_name = 'color'
-      LIMIT 1
+      WHERE table_schema = ? AND table_name = ?
       `,
       [schema, tableName]
     );
-    if (colorColCheck.rows.length === 0) {
+    const allCols = (columnsQuery.rows || []).map((r) => r.column_name);
+    if (!allCols.includes("color")) {
       const response = new WithoutDataResource(
         400,
         "COLOR_COLUMN_NOT_AVAILABLE",
@@ -1641,61 +1684,25 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
       );
       return res.status(400).json(response.toResponse());
     }
-
-    // 5. Cek apakah kolom property_key ada dalam tabel
-    const columnCheck = await knex.raw(
-      `
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = ? AND table_name = ? AND column_name = ?
-      `,
-      [schema, tableName, property_key]
-    );
-    if (columnCheck.rows.length === 0) {
+    if (!allCols.includes(keyRaw)) {
       const response = new WithoutDataResource(
         400,
         "COLUMN_NOT_FOUND",
         "Kolom Tidak Ditemukan",
-        `Kolom '${property_key}' tidak ditemukan di tabel '${tableName}'.`
+        `Kolom '${keyRaw}' tidak ditemukan di tabel '${tableNameRaw}'.`
       );
       return res.status(400).json(response.toResponse());
     }
 
-    // 6. Ambil nilai unik dari kolom property_key (hindari duplikat)
-    const valuesQuery = await knex(schema)
-      .select(property_key)
-      .distinct()
-      .from(tableName)
-      .whereNotNull(property_key);
+    await knex.transaction(async (trx) => {
+      for (const { property_value, color } of pairs) {
+        await trx(tableName)
+          .withSchema(schema)
+          .where(keyRaw, property_value)
+          .update({ color });
+      }
+    });
 
-    const values = valuesQuery.map((row) => row[property_key]);
-
-    // 7. Buat mapping nilai ke warna
-    const valueToColor = mapValuesToColor(values, colorscale);
-
-    // 8. Update color dan color_property_key
-    const updates = [];
-    for (const value of values) {
-      const color = valueToColor.get(value);
-
-      // Jika warna lama ada, set null dulu
-      updates.push(
-        knex(tableName)
-          .where(property_key, value)
-          .update({ color: null })
-          .then(() => {
-            return knex(tableName).where(property_key, value).update({ color });
-          })
-      );
-    }
-
-    // 9. Simpan property_key ke dalam color_property_key di tabel 'layers'
-    await knex("layers")
-      .where("id", id)
-      .update({ color_property_key: property_key });
-
-    // Menjalankan semua query update sekaligus
-    await Promise.all(updates);
     const response = new WithoutDataResource(
       200,
       "SUCCESS_UPDATE_DATA",

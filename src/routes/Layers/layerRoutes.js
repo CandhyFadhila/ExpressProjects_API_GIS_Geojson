@@ -95,4 +95,11 @@ router.patch(
   layersController.updateLayerColor
 );
 
+router.patch(
+  "/update-color-key/:id",
+  rateLimiter,
+  authMiddleware,
+  layersController.updateLayerColorbyPropertyKey
+);
+
 module.exports = router;
