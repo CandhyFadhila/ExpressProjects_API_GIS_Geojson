@@ -1756,7 +1756,7 @@ async function layersResource(layer, depth = 0) {
         feature.properties = trimZeroDecimalsDeep(feature.properties, {
           returnType: "string",
           maxFractionDigits: 12,
-          onlyIfHasDecimalPoint: true, // kunci: string tanpa '.' tidak akan di-trim (contoh HAK)
+          onlyIfHasDecimalPoint: true,
         });
 
         const SkDocs = feature.properties.document_sk_ids || [];

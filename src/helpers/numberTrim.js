@@ -24,7 +24,7 @@ function trimZeroDecimal(
   if (value == null) return value;
 
   if (typeof value === "number" && Number.isFinite(value)) {
-    let s = value.toFixed(maxFractionDigits);
+    const s = value.toFixed(maxFractionDigits);
     const out = trimZeroDecimalString(s);
     return returnType === "number" && NUMERIC_RE.test(out) ? Number(out) : out;
   }
@@ -37,43 +37,45 @@ function trimZeroDecimal(
   return value;
 }
 
+// --- helper: hanya anggap plain object ({} literal) sebagai target rekursi ---
+function isPlainObject(obj) {
+  if (!obj || typeof obj !== "object") return false;
+  const proto = Object.getPrototypeOf(obj);
+  return proto === Object.prototype || proto === null;
+}
+
 /**
  * Deep trim dengan kontrol:
- * - onlyIfHasDecimalPoint: true => untuk STRING, hanya trim jika ada '.' (hindari HAK "0202...")
- * - shouldTrim(value, keyPathLast, keyPathArr): predicate opsional untuk kontrol per key
+ * - onlyIfHasDecimalPoint: true => STRING hanya di-trim jika ada '.' (hindari HAK "0202...")
+ * - shouldTrim(value, keyPathLast, keyPathArr): predicate opsional per key
+ * Catatan: Date, Buffer, dan non-plain objects TIDAK direkursi & TIDAK diubah.
  */
 function trimZeroDecimalsDeep(input, opts = {}) {
   const {
     returnType = "string",
     maxFractionDigits = 12,
     onlyIfHasDecimalPoint = true,
-    shouldTrim, // (value, key, pathArr) => boolean
+    shouldTrim, // (value, key, pathArr) => boolean; return false untuk skip trim
     _path = [], // internal
   } = opts;
 
   const applyTrim = (val, key) => {
-    // predicate khusus user
-    if (
-      typeof shouldTrim === "function" &&
-      shouldTrim(val, key, _path) === false
-    ) {
+    if (typeof shouldTrim === "function" && shouldTrim(val, key, _path) === false) {
       return val;
     }
 
-    // Hanya trim STRING yang mengandung '.' jika onlyIfHasDecimalPoint=true
     if (typeof val === "string") {
       if (onlyIfHasDecimalPoint && !val.includes(".")) return val;
-      // pastikan string angka
       if (!NUMERIC_RE.test(val.trim())) return val;
       return trimZeroDecimal(val, { returnType, maxFractionDigits });
     }
 
-    // Untuk NUMBER: hanya trim jika bukan integer
     if (typeof val === "number") {
-      if (Number.isInteger(val)) return val; // biarkan bilangan bulat apa adanya
+      if (Number.isInteger(val)) return val;
       return trimZeroDecimal(val, { returnType, maxFractionDigits });
     }
 
+    // Non-primitive (Date, Buffer, class instance, dll) -> biarkan
     return val;
   };
 
@@ -83,10 +85,10 @@ function trimZeroDecimalsDeep(input, opts = {}) {
     );
   }
 
-  if (input && typeof input === "object") {
+  if (isPlainObject(input)) {
     const out = {};
     for (const [k, v] of Object.entries(input)) {
-      if (v && typeof v === "object") {
+      if (Array.isArray(v) || isPlainObject(v)) {
         out[k] = trimZeroDecimalsDeep(v, { ...opts, _path: _path.concat(k) });
       } else {
         out[k] = applyTrim(v, k);
@@ -95,7 +97,7 @@ function trimZeroDecimalsDeep(input, opts = {}) {
     return out;
   }
 
-  // primitif
+  // Bukan array & bukan plain object: kembalikan apa adanya (menjaga Date, Buffer, dll)
   return applyTrim(input, _path[_path.length - 1]);
 }
 
