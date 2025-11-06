@@ -79,7 +79,7 @@ exports.store = async (req, res) => {
   if (!isSuperAdmin) {
     const response = new WithoutDataResource(
       403,
-      "NOT_SUPER_ADMIN",
+      "NO_ACCESS",
       "Akses ditolak",
       "Maaf anda tidak memiliki akses untuk melakukan proses ini."
     );
@@ -204,7 +204,7 @@ exports.update = async (req, res) => {
   if (!isSuperAdmin) {
     const response = new WithoutDataResource(
       403,
-      "NOT_SUPER_ADMIN",
+      "NO_ACCESS",
       "Akses ditolak",
       "Maaf anda tidak memiliki akses untuk melakukan proses ini."
     );
@@ -305,7 +305,7 @@ exports.destroy = async (req, res) => {
   if (!isSuperAdmin) {
     const response = new WithoutDataResource(
       403,
-      "NOT_SUPER_ADMIN",
+      "NO_ACCESS",
       "Akses ditolak",
       "Maaf anda tidak memiliki akses untuk melakukan proses ini."
     );
@@ -365,7 +365,7 @@ exports.restore = async (req, res) => {
   if (!isSuperAdmin) {
     const response = new WithoutDataResource(
       403,
-      "NOT_SUPER_ADMIN",
+      "NO_ACCESS",
       "Akses ditolak",
       "Maaf anda tidak memiliki akses untuk melakukan proses ini."
     );

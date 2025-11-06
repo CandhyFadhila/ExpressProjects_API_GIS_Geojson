@@ -22,24 +22,10 @@ const {
 } = require("../../helpers/resolveArrayRelations");
 const serializeLayer = require("../../resources/Layers/serializeLayer");
 const { mapValuesToColor } = require("../../helpers/colorHelper");
-const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
+// const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
 const { trimZeroDecimalsDeep } = require("../../helpers/numberTrim");
 
 exports.store = async (req, res) => {
-  const isSuperAdmin = await isSuperAdminFromRequest(req);
-  if (!isSuperAdmin) {
-    const response = new WithoutDataResource(
-      403,
-      "NOT_SUPER_ADMIN",
-      "Akses ditolak",
-      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
-    );
-    logger.info(
-      `| Layers | - Akses ditolak (bukan super admin), userId=${req.userId}`
-    );
-    return res.status(403).json(response.toResponse());
-  }
-
   const trx = await knex.transaction();
   const {
     workspace_id,
@@ -55,7 +41,20 @@ exports.store = async (req, res) => {
     .trim()
     .toLowerCase();
 
+  const userId = req.userId;
   try {
+    const auth = await ensureWorkspaceOwner(req, workspace_id, trx);
+    if (!auth.ok) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        auth.http,
+        auth.code,
+        auth.title,
+        auth.desc
+      );
+      return res.status(auth.http).json(response.toResponse());
+    }
+
     // 1. Validasi dengan express-validator
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -262,6 +261,23 @@ exports.store = async (req, res) => {
       );
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
+    // 6. Update workspaces.created_by
+    if (workspace_id && userId) {
+      try {
+        await trx("workspaces")
+          .where({ id: workspace_id })
+          .whereNull("created_by")
+          .update({
+            created_by: userId,
+            updated_at: knex.fn.now(),
+          });
+      } catch (err) {
+        logger.warn(
+          `| Layers | - Gagal update workspaces.created_by: ${err.message}`
+        );
+      }
+    }
+
     await trx.commit();
 
     const savedLayer = await knex("layers").where("id", newLayer.id).first();
@@ -289,20 +305,6 @@ exports.store = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
-  const isSuperAdmin = await isSuperAdminFromRequest(req);
-  if (!isSuperAdmin) {
-    const response = new WithoutDataResource(
-      403,
-      "NOT_SUPER_ADMIN",
-      "Akses ditolak",
-      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
-    );
-    logger.info(
-      `| Layers | - Akses ditolak (bukan super admin), userId=${req.userId}`
-    );
-    return res.status(403).json(response.toResponse());
-  }
-
   const trx = await knex.transaction();
   const {
     workspace_id,
@@ -383,11 +385,11 @@ exports.update = async (req, res) => {
       }
     }
 
-    // 4. Ambil dokumen sebelumnya
+    // 3. Ambil dokumen sebelumnya
     const oldDocId = existing.document_id;
     let finalDocId = oldDocId;
 
-    // 5. Upload dokumen baru
+    // 4. Upload dokumen baru
     let newDocId = null;
     if (req.files && req.files.length > 0) {
       const file = req.files[0];
@@ -588,20 +590,6 @@ exports.update = async (req, res) => {
 };
 
 exports.destroy = async (req, res) => {
-  const isSuperAdmin = await isSuperAdminFromRequest(req);
-  if (!isSuperAdmin) {
-    const response = new WithoutDataResource(
-      403,
-      "NOT_SUPER_ADMIN",
-      "Akses ditolak",
-      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
-    );
-    logger.info(
-      `| Layers | - Akses ditolak (bukan super admin), userId=${req.userId}`
-    );
-    return res.status(403).json(response.toResponse());
-  }
-
   const id = req.params.id;
   const trx = await knex.transaction();
 
@@ -613,9 +601,22 @@ exports.destroy = async (req, res) => {
         200,
         "DATA_NOT_FOUND",
         "Data Tidak Ditemukan",
-        `Workspace dengan ID '${id}' tidak ditemukan.`
+        `Layer dengan ID '${id}' tidak ditemukan.`
       );
       return res.status(200).json(response.toResponse());
+    }
+
+    const workspaceId = existing.workspace_id;
+    const auth = await ensureWorkspaceOwner(req, workspaceId, trx);
+    if (!auth.ok) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        auth.http,
+        auth.code,
+        auth.title,
+        auth.desc
+      );
+      return res.status(auth.http).json(response.toResponse());
     }
 
     const { table_name, document_id } = existing;
@@ -1031,20 +1032,6 @@ exports.getLayerPropertiesValuebyLayerId = async (req, res) => {
 };
 
 exports.updateLayerFeatures = async (req, res) => {
-  const isSuperAdmin = await isSuperAdminFromRequest(req);
-  if (!isSuperAdmin) {
-    const response = new WithoutDataResource(
-      403,
-      "NOT_SUPER_ADMIN",
-      "Akses ditolak",
-      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
-    );
-    logger.info(
-      `| Layers | - Akses ditolak (bukan super admin), userId=${req.userId}`
-    );
-    return res.status(403).json(response.toResponse());
-  }
-
   const {
     table_name,
     layer_id,
@@ -1174,6 +1161,19 @@ exports.updateLayerFeatures = async (req, res) => {
         `Layer dengan ID ${layer_id} tidak ditemukan.`
       );
       return res.status(400).json(response.toResponse());
+    }
+
+    const workspaceId = layer.workspace_id;
+    const auth = await ensureWorkspaceOwner(req, workspaceId, trx);
+    if (!auth.ok) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        auth.http,
+        auth.code,
+        auth.title,
+        auth.desc
+      );
+      return res.status(auth.http).json(response.toResponse());
     }
 
     // 1. Parsing properti
@@ -1458,20 +1458,6 @@ exports.updateLayerFeatures = async (req, res) => {
 };
 
 exports.updateLayerColor = async (req, res) => {
-  const isSuperAdmin = await isSuperAdminFromRequest(req);
-  if (!isSuperAdmin) {
-    const response = new WithoutDataResource(
-      403,
-      "NOT_SUPER_ADMIN",
-      "Akses ditolak",
-      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
-    );
-    logger.info(
-      `| Layers | - Akses ditolak (bukan super admin), userId=${req.userId}`
-    );
-    return res.status(403).json(response.toResponse());
-  }
-
   const { id } = req.params;
   const { property_key, colorscale } = req.body;
 
@@ -1504,11 +1490,10 @@ exports.updateLayerColor = async (req, res) => {
 
     // 2. Ambil layer berdasarkan layer_id
     const layer = await knex("layers")
-      .select("id", "table_name")
+      .select("id", "workspace_id", "table_name")
       .where("id", id)
       .whereNull("deleted_at")
       .first();
-
     if (!layer) {
       const response = new WithoutDataResource(
         200,
@@ -1517,6 +1502,19 @@ exports.updateLayerColor = async (req, res) => {
         `Layer dengan ID '${id}' tidak ditemukan.`
       );
       return res.status(200).json(response.toResponse());
+    }
+
+    const workspaceId = layer.workspace_id;
+    const auth = await ensureWorkspaceOwner(req, workspaceId, trx);
+    if (!auth.ok) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        auth.http,
+        auth.code,
+        auth.title,
+        auth.desc
+      );
+      return res.status(auth.http).json(response.toResponse());
     }
 
     const tableNameRaw = layer.table_name;
@@ -1647,20 +1645,6 @@ exports.updateLayerColor = async (req, res) => {
 };
 
 exports.updateLayerColorbyPropertyKey = async (req, res) => {
-  const isSuperAdmin = await isSuperAdminFromRequest(req);
-  if (!isSuperAdmin) {
-    const response = new WithoutDataResource(
-      403,
-      "NOT_SUPER_ADMIN",
-      "Akses ditolak",
-      "Maaf anda tidak memiliki akses untuk melakukan proses ini."
-    );
-    logger.info(
-      `| Layers | - Akses ditolak (bukan super admin), userId=${req.userId}`
-    );
-    return res.status(403).json(response.toResponse());
-  }
-
   const { id } = req.params;
   const { property_key, property_values } = req.body;
 
@@ -1710,11 +1694,10 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
 
     // 1. Ambil layer
     const layer = await knex("layers")
-      .select("id", "table_name")
+      .select("id", "workspace_id", "table_name")
       .where("id", id)
       .whereNull("deleted_at")
       .first();
-
     if (!layer) {
       const response = new WithoutDataResource(
         200,
@@ -1723,6 +1706,19 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
         `Layer dengan ID '${id}' tidak ditemukan.`
       );
       return res.status(200).json(response.toResponse());
+    }
+
+    const workspaceId = layer.workspace_id;
+    const auth = await ensureWorkspaceOwner(req, workspaceId, trx);
+    if (!auth.ok) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        auth.http,
+        auth.code,
+        auth.title,
+        auth.desc
+      );
+      return res.status(auth.http).json(response.toResponse());
     }
 
     const tableNameRaw = layer.table_name;
@@ -2172,5 +2168,64 @@ async function handleDeleteTableWithDocument(tableName, layerDocumentId) {
     throw new Error(
       `Gagal menghapus dokumen dan tabel '${tableName}': ${error.message}`
     );
+  }
+}
+
+async function ensureWorkspaceOwner(req, workspaceId, trxOrKnex = knex) {
+  const userId = req.userId;
+  if (!userId) {
+    return {
+      ok: false,
+      http: 401,
+      code: "UNAUTHORIZED",
+      title: "Tidak Terautentikasi",
+      desc: "Silakan login terlebih dahulu.",
+    };
+  }
+
+  try {
+    // const isSuperAdmin = await isSuperAdminFromRequest(req);
+    // if (isSuperAdmin) {
+    //   return { ok: true, who: "super_admin" };
+    // }
+
+    const workspace = await trxOrKnex("workspaces")
+      .select("id", "created_by")
+      .where({ id: workspaceId })
+      .first();
+
+    if (!workspace) {
+      return {
+        ok: false,
+        http: 200,
+        code: "DATA_NOT_FOUND",
+        title: "Data Tidak Ditemukan",
+        desc: `Workspace dengan ID '${workspaceId}' tidak ditemukan.`,
+      };
+    }
+
+    if (
+      workspace.created_by != null &&
+      Number(workspace.created_by) === Number(userId)
+    ) {
+      return { ok: true, who: "owner", workspace };
+    }
+
+    return {
+      ok: false,
+      http: 403,
+      code: "NO_ACCESS",
+      title: "Akses Ditolak",
+      desc: "Hanya pembuat workspace atau super admin yang dapat mengubah/menghapus layer ini.",
+    };
+  } catch (err) {
+    logger.error(`| Auth | - Error ensureWorkspaceOwner: ${err.message}`);
+    return {
+      ok: false,
+      http: 500,
+      code: "SERVER_ERROR",
+      title: "Server Sedang Error",
+      desc: "Terjadi kesalahan pada sistem saat memeriksa akses.",
+    };
   }
 }
