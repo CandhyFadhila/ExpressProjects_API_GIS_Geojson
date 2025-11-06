@@ -60,6 +60,10 @@ exports.login = async (req, res) => {
       return res.status(400).json(response.toResponse());
     }
 
+    const role = await knex("roles")
+      .where({ id: user.role_id })
+      .first();
+
     // Update last_login
     await knex("users")
       .where({ id: user.id })
@@ -80,6 +84,7 @@ exports.login = async (req, res) => {
       name: user.name,
       email: user.email,
       username: user.username,
+      role: role,
       last_login: user.last_login,
     };
 

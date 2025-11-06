@@ -135,7 +135,7 @@ async function alterTableForMeta(schemaName, tableName) {
     `);
 
     logger.info(
-      `| alterTableForMeta | Kolom layer_id, document_ids, dan color berhasil ditambahkan pada ${schemaName}.${tableName}`
+      `| alterTableForMeta | Kolom layer_id, document_sk_ids, other_document_ids, dan color berhasil ditambahkan pada ${schemaName}.${tableName}`
     );
   } catch (err) {
     throw new Error(

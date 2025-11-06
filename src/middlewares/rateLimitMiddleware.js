@@ -5,7 +5,7 @@ const logger = require("../utils/logger");
 // Bikin sekali saat aplikasi di-start
 const limiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 menit
-  max: 20, // Maksimal 10 request per window
+  max: 50, // Maksimal 50 request per window
   keyGenerator: ipKeyGenerator, // ✅ wajib untuk keamanan IPv6
   standardHeaders: true,
   legacyHeaders: false,
