@@ -24,6 +24,7 @@ async function workspaceResource(workspace) {
 
   return {
     id: workspace.id,
+    created_by: workspace.created_by,
     title: workspace.title,
     description: workspace.description,
     thumbnail: await resolveArrayRelations(
