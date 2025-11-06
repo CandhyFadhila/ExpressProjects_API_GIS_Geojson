@@ -18,7 +18,7 @@ router.get(
   "/index",
   rateLimiter,
   authMiddleware,
-  roleMiddleware([ROLES.SUPER_ADMIN]),
+  roleMiddleware([ROLES.SUPER_ADMIN, ROLES.REGULER, ROLES.VIEWER]),
   categoriesController.index
 );
 

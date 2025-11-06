@@ -128,14 +128,20 @@ async function alterTableForMeta(schemaName, tableName) {
       ADD COLUMN IF NOT EXISTS other_document_ids JSONB DEFAULT '[]';
     `);
 
-    // 4. Tambahkan kolom color jika belum ada
+    // 4. Tambahkan kolom image_ids jika belum ada
+    await client.query(`
+      ALTER TABLE "${schemaName}"."${tableName}"
+      ADD COLUMN IF NOT EXISTS image_ids JSONB DEFAULT '[]';
+    `);
+
+    // 5. Tambahkan kolom color jika belum ada
     await client.query(`
       ALTER TABLE "${schemaName}"."${tableName}"
       ADD COLUMN IF NOT EXISTS color VARCHAR(9);
     `);
 
     logger.info(
-      `| alterTableForMeta | Kolom layer_id, document_sk_ids, other_document_ids, dan color berhasil ditambahkan pada ${schemaName}.${tableName}`
+      `| alterTableForMeta | Kolom layer_id, document_sk_ids, other_document_ids, image_ids dan color berhasil ditambahkan pada ${schemaName}.${tableName}`
     );
   } catch (err) {
     throw new Error(

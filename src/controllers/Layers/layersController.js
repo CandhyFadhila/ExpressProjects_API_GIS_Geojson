@@ -1051,6 +1051,7 @@ exports.updateLayerFeatures = async (req, res) => {
     properties,
     delete_sk_document_ids,
     delete_other_document_ids,
+    delete_image_ids,
   } = req.body;
   const trx = await knex.transaction();
   const allowedUpdateColumns = [
@@ -1108,6 +1109,33 @@ exports.updateLayerFeatures = async (req, res) => {
           400,
           "FILE_TOO_LARGE",
           `Ukuran Dokumen Terlalu Besar (${label})`,
+          "Ukuran maksimal tiap file adalah 10MB."
+        );
+      }
+    }
+  };
+
+  const validateImages = (files, label) => {
+    const allowedImages = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+    ];
+    for (const f of files) {
+      if (!allowedImages.includes(f.mimetype)) {
+        throw new WithoutDataResource(
+          400,
+          "INVALID_FILE_TYPE",
+          `Tipe Gambar Salah (${label})`,
+          "File Gambar hanya boleh JPEG, JPG, PNG, dan WebP."
+        );
+      }
+      if (f.size > 10 * 1024 * 1024) {
+        throw new WithoutDataResource(
+          400,
+          "FILE_TOO_LARGE",
+          `Ukuran Gambar Terlalu Besar (${label})`,
           "Ukuran maksimal tiap file adalah 10MB."
         );
       }
@@ -1216,6 +1244,7 @@ exports.updateLayerFeatures = async (req, res) => {
     const existing = await trx(table_name).where("id", id).first();
     let currentSk = toArray(existing?.document_sk_ids);
     let currentOther = toArray(existing?.other_document_ids);
+    let currentImage = toArray(existing?.image_ids);
 
     let delSkIds = parseDeleteIds(delete_sk_document_ids);
     if (delSkIds === "__INVALID__") {
@@ -1239,23 +1268,49 @@ exports.updateLayerFeatures = async (req, res) => {
       );
       return res.status(400).json(response.toResponse());
     }
+    let delImageIds = parseDeleteIds(delete_image_ids);
+    if (delImageIds === "__INVALID__") {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "INVALID_DELETE_DOC_IDS",
+        "Format delete_image_ids tidak valid",
+        "Pastikan delete_image_ids berbentuk array JSON yang benar, contoh: [1,2,3]"
+      );
+      return res.status(400).json(response.toResponse());
+    }
 
-    if (delSkIds.length > 0 || delOtherIds.length > 0) {
+    if (
+      delSkIds.length > 0 ||
+      delOtherIds.length > 0 ||
+      delImageIds.length > 0
+    ) {
       const delSkSet = new Set(delSkIds);
       const delOtherSet = new Set(delOtherIds);
+      const delImageSet = new Set(delImageIds);
 
       // simpan apa saja yang benar2 terhapus dari masing2 kolom
       const removedFromSk = currentSk.filter((x) => delSkSet.has(x));
       const removedFromOther = currentOther.filter((x) => delOtherSet.has(x));
+      const removedFromImage = currentImage.filter((x) => delImageSet.has(x));
 
       // filter keluar dari masing-masing kolom
       currentSk = currentSk.filter((x) => !delSkSet.has(x));
       currentOther = currentOther.filter((x) => !delOtherSet.has(x));
+      currentImage = currentImage.filter((x) => !delImageSet.has(x));
 
       // hitung file fisik yang aman untuk dihapus:
       // union(removed) MINUS (ID yang masih direferensikan di salah satu kolom setelah update)
-      const unionRemoved = uniq([...removedFromSk, ...removedFromOther]);
-      const stillReferenced = new Set([...currentSk, ...currentOther]);
+      const unionRemoved = uniq([
+        ...removedFromSk,
+        ...removedFromOther,
+        ...removedFromImage,
+      ]);
+      const stillReferenced = new Set([
+        ...currentSk,
+        ...currentOther,
+        ...currentImage,
+      ]);
       const toPhysicallyDelete = unionRemoved.filter(
         (x) => !stillReferenced.has(x)
       );
@@ -1269,26 +1324,32 @@ exports.updateLayerFeatures = async (req, res) => {
         .update({
           document_sk_ids: JSON.stringify(currentSk),
           other_document_ids: JSON.stringify(currentOther),
+          image_ids: JSON.stringify(currentImage),
         });
     }
 
     // 4. Proses penghapusan dokumen jika ada
     let skFiles = [];
     let otherFiles = [];
-    if (Array.isArray(req.files)) {
-      skFiles = req.files;
-    } else if (req.files) {
+    let imageFiles = [];
+    if (req.files && !Array.isArray(req.files)) {
       skFiles = Array.isArray(req.files.sk_document)
         ? req.files.sk_document
         : [];
       otherFiles = Array.isArray(req.files.other_document)
         ? req.files.other_document
         : [];
+      imageFiles = Array.isArray(req.files.images) ? req.files.images : [];
+    } else {
+      skFiles = [];
+      otherFiles = [];
+      imageFiles = [];
     }
 
     // Validasi file
     validateFiles(skFiles, "sk_document");
     validateFiles(otherFiles, "other_document");
+    validateImages(imageFiles, "images");
 
     // 5. Validasi & upload dokumen jika ada
     if (skFiles.length + currentSk.length > 5) {
@@ -1311,6 +1372,16 @@ exports.updateLayerFeatures = async (req, res) => {
       );
       return res.status(400).json(response.toResponse());
     }
+    if (imageFiles.length + currentImage.length > 5) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "MAX_TOTAL_FILES",
+        "Terlalu Banyak Dokumen (images)",
+        `Dokumen sebelumnya berjumlah ${currentImage.length}, jika ditambah ${imageFiles.length} akan melebihi batas maksimal 5 file.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
 
     // Proses upload
     if (skFiles.length > 0) {
@@ -1321,13 +1392,18 @@ exports.updateLayerFeatures = async (req, res) => {
       const uploadedOther = await uploadDocuments(otherFiles);
       currentOther = uniq([...currentOther, ...uploadedOther.map((d) => d.id)]);
     }
+    if (imageFiles.length > 0) {
+      const uploadedImage = await uploadDocuments(imageFiles);
+      currentImage = uniq([...currentImage, ...uploadedImage.map((d) => d.id)]);
+    }
 
-    if (skFiles.length > 0 || otherFiles.length > 0) {
+    if (skFiles.length > 0 || otherFiles.length > 0 || imageFiles.length > 0) {
       await trx(table_name)
         .where("id", id)
         .update({
           document_sk_ids: JSON.stringify(currentSk),
           other_document_ids: JSON.stringify(currentOther),
+          image_ids: JSON.stringify(currentImage),
         });
     }
 
@@ -1351,16 +1427,32 @@ exports.updateLayerFeatures = async (req, res) => {
     );
     return res.status(200).json(response.toResponse());
   } catch (error) {
-    await trx.rollback(); // Rollback jika error
-    logger.error(
-      `| Update Shapefile | - Error updateLayerFeatures: ${error.message}`
-    );
+    await trx.rollback();
+
+    if (error && typeof error.toResponse === "function") {
+      try {
+        const resp = error.toResponse();
+        return res.status(resp?.http || 400).json(resp);
+      } catch {
+        logger.warn(`| Update Shapefile | - Known error (raw)`);
+        return res.status(error.http || 400).json(error.toResponse());
+      }
+    }
+
+    // Unknown error
+    const msg =
+      (error && (error.stack || error.message)) ||
+      (typeof error === "string" ? error : JSON.stringify(error));
+
+    logger.error(`| Update Shapefile | - Error updateLayerFeatures: ${msg}`);
+
     const response = new WithoutDataResource(
       500,
       "SERVER_ERROR",
       "Server Sedang Error",
       "Terjadi kesalahan pada sistem, silahkan coba lagi nanti atau hubungi admin."
     );
+
     res.status(500).json(response.toResponse());
   }
 };
@@ -1925,15 +2017,18 @@ async function layersSingleFeatureWithoutGeojsonResource(
       for (const feature of features) {
         const SkDocs = feature.properties.document_sk_ids || [];
         const OtherDocs = feature.properties.other_document_ids || [];
+        const ImageDocs = feature.properties.image_ids || [];
         const sk_document = await resolveArrayRelations(SkDocs, "documents");
         const other_document = await resolveArrayRelations(
           OtherDocs,
           "documents"
         );
+        const image = await resolveArrayRelations(ImageDocs, "documents");
 
         // Masukkan dokumen ke dalam features tapi diluar properties
         feature.sk_document = sk_document;
         feature.other_document = other_document;
+        feature.image = image;
 
         delete feature.geometry;
       }

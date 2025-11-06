@@ -43,6 +43,7 @@ router.patch(
   upload.fields([
     { name: "sk_document", maxCount: 5 },
     { name: "other_document", maxCount: 5 },
+    { name: "images", maxCount: 5 },
   ]),
   updateShpGeoDataValidator,
   validate,
