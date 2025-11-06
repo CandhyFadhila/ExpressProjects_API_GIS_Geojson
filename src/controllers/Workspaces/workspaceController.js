@@ -22,6 +22,7 @@ exports.index = async (req, res) => {
     let query = knex("workspaces as w")
       .select(
         "w.id",
+        "w.created_by",
         "w.category_id",
         "w.title",
         "w.description",
