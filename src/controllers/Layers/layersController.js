@@ -262,21 +262,13 @@ exports.store = async (req, res) => {
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
     // 6. Update workspaces.created_by
-    if (workspace_id && userId) {
-      try {
-        await trx("workspaces")
-          .where({ id: workspace_id })
-          .whereNull("created_by")
-          .update({
-            created_by: userId,
-            updated_at: knex.fn.now(),
-          });
-      } catch (err) {
-        logger.warn(
-          `| Layers | - Gagal update workspaces.created_by: ${err.message}`
-        );
-      }
-    }
+    await trx("workspaces")
+      .where({ id: workspace_id })
+      .whereNull("created_by")
+      .update({
+        created_by: userId,
+        updated_at: knex.fn.now(),
+      });
 
     await trx.commit();
 
@@ -1504,132 +1496,141 @@ exports.updateLayerColor = async (req, res) => {
       return res.status(200).json(response.toResponse());
     }
 
-    const workspaceId = layer.workspace_id;
-    const auth = await ensureWorkspaceOwner(req, workspaceId, trx);
-    if (!auth.ok) {
-      await trx.rollback();
-      const response = new WithoutDataResource(
-        auth.http,
-        auth.code,
-        auth.title,
-        auth.desc
-      );
-      return res.status(auth.http).json(response.toResponse());
-    }
+    const trx = await knex.transaction();
+    try {
+      const auth = await ensureWorkspaceOwner(req, layer.workspace_id, trx);
+      if (!auth.ok) {
+        await trx.rollback();
+        const response = new WithoutDataResource(
+          auth.http,
+          auth.code,
+          auth.title,
+          auth.desc
+        );
+        return res.status(auth.http).json(response.toResponse());
+      }
 
-    const tableNameRaw = layer.table_name;
-    let schema = "public";
-    let tableName = tableNameRaw;
+      const tableNameRaw = layer.table_name;
+      let schema = "public";
+      let tableName = tableNameRaw;
 
-    if (tableNameRaw.includes(".")) {
-      const [sch, tbl] = tableNameRaw.split(".", 2);
-      schema = sch || "public";
-      tableName = tbl;
-    }
+      if (tableNameRaw.includes(".")) {
+        const [sch, tbl] = tableNameRaw.split(".", 2);
+        schema = sch || "public";
+        tableName = tbl;
+      }
 
-    // 3. Cek apakah tabel ada
-    const existsQuery = await knex.raw(
-      `
+      // 3. Cek apakah tabel ada
+      const existsQuery = await knex.raw(
+        `
       SELECT EXISTS (
         SELECT 1
         FROM information_schema.tables
         WHERE table_schema = ? AND table_name = ?
       ) AS exists;
       `,
-      [schema, tableName]
-    );
-    const tableExists = existsQuery.rows?.[0]?.exists === true;
-    if (!tableExists) {
-      const response = new WithoutDataResource(
-        404,
-        "TABLE_NOT_FOUND",
-        "Tabel Tidak Ditemukan",
-        `Tabel '${tableNameRaw}' tidak ditemukan pada schema '${schema}'.`
+        [schema, tableName]
       );
-      return res.status(404).json(response.toResponse());
-    }
+      const tableExists = existsQuery.rows?.[0]?.exists === true;
+      if (!tableExists) {
+        const response = new WithoutDataResource(
+          404,
+          "TABLE_NOT_FOUND",
+          "Tabel Tidak Ditemukan",
+          `Tabel '${tableNameRaw}' tidak ditemukan pada schema '${schema}'.`
+        );
+        return res.status(404).json(response.toResponse());
+      }
 
-    // 4. Cek kolom color sudah ready apa belum
-    const colorColCheck = await knex.raw(
-      `
+      // 4. Cek kolom color sudah ready apa belum
+      const colorColCheck = await knex.raw(
+        `
       SELECT 1
       FROM information_schema.columns
       WHERE table_schema = ? AND table_name = ? AND column_name = 'color'
       LIMIT 1
       `,
-      [schema, tableName]
-    );
-    if (colorColCheck.rows.length === 0) {
-      const response = new WithoutDataResource(
-        400,
-        "COLOR_COLUMN_NOT_AVAILABLE",
-        "Kolom color tidak tersedia",
-        "Kolom color tidak tersedia, lakukan upload ulang SHP atau buat baru."
+        [schema, tableName]
       );
-      return res.status(400).json(response.toResponse());
-    }
+      if (colorColCheck.rows.length === 0) {
+        const response = new WithoutDataResource(
+          400,
+          "COLOR_COLUMN_NOT_AVAILABLE",
+          "Kolom color tidak tersedia",
+          "Kolom color tidak tersedia, lakukan upload ulang SHP atau buat baru."
+        );
+        return res.status(400).json(response.toResponse());
+      }
 
-    // 5. Cek apakah kolom property_key ada dalam tabel
-    const columnCheck = await knex.raw(
-      `
+      // 5. Cek apakah kolom property_key ada dalam tabel
+      const columnCheck = await knex.raw(
+        `
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = ? AND table_name = ? AND column_name = ?
       `,
-      [schema, tableName, property_key]
-    );
-    if (columnCheck.rows.length === 0) {
+        [schema, tableName, property_key]
+      );
+      if (columnCheck.rows.length === 0) {
+        const response = new WithoutDataResource(
+          400,
+          "COLUMN_NOT_FOUND",
+          "Kolom Tidak Ditemukan",
+          `Kolom '${property_key}' tidak ditemukan di tabel '${tableName}'.`
+        );
+        return res.status(400).json(response.toResponse());
+      }
+
+      // 6. Ambil nilai unik dari kolom property_key (hindari duplikat)
+      const valuesQuery = await knex(schema)
+        .select(property_key)
+        .distinct()
+        .from(tableName)
+        .whereNotNull(property_key);
+
+      const values = valuesQuery.map((row) => row[property_key]);
+
+      // 7. Buat mapping nilai ke warna
+      const valueToColor = mapValuesToColor(values, colorscale);
+
+      // 8. Update color dan color_property_key
+      const updates = [];
+      for (const value of values) {
+        const color = valueToColor.get(value);
+
+        // Jika warna lama ada, set null dulu
+        updates.push(
+          knex(tableName)
+            .where(property_key, value)
+            .update({ color: null })
+            .then(() => {
+              return knex(tableName)
+                .where(property_key, value)
+                .update({ color });
+            })
+        );
+      }
+
+      // 9. Simpan property_key ke dalam color_property_key di tabel 'layers'
+      await knex("layers")
+        .where("id", id)
+        .update({ color_property_key: property_key });
+
+      // Menjalankan semua query update sekaligus
+      await Promise.all(updates);
       const response = new WithoutDataResource(
-        400,
-        "COLUMN_NOT_FOUND",
-        "Kolom Tidak Ditemukan",
-        `Kolom '${property_key}' tidak ditemukan di tabel '${tableName}'.`
+        200,
+        "SUCCESS_UPDATE_DATA",
+        "Berhasil Memperbarui Data",
+        `Warna untuk properti '${property_key}' pada tabel '${tableName}' berhasil diperbarui.`
       );
-      return res.status(400).json(response.toResponse());
+      return res.status(200).json(response.toResponse());
+    } catch (error) {
+      try {
+        await trx.rollback();
+      } catch (_) {}
+      throw error;
     }
-
-    // 6. Ambil nilai unik dari kolom property_key (hindari duplikat)
-    const valuesQuery = await knex(schema)
-      .select(property_key)
-      .distinct()
-      .from(tableName)
-      .whereNotNull(property_key);
-
-    const values = valuesQuery.map((row) => row[property_key]);
-
-    // 7. Buat mapping nilai ke warna
-    const valueToColor = mapValuesToColor(values, colorscale);
-
-    // 8. Update color dan color_property_key
-    const updates = [];
-    for (const value of values) {
-      const color = valueToColor.get(value);
-
-      // Jika warna lama ada, set null dulu
-      updates.push(
-        knex(tableName)
-          .where(property_key, value)
-          .update({ color: null })
-          .then(() => {
-            return knex(tableName).where(property_key, value).update({ color });
-          })
-      );
-    }
-
-    // 9. Simpan property_key ke dalam color_property_key di tabel 'layers'
-    await knex("layers")
-      .where("id", id)
-      .update({ color_property_key: property_key });
-
-    // Menjalankan semua query update sekaligus
-    await Promise.all(updates);
-    const response = new WithoutDataResource(
-      200,
-      "SUCCESS_UPDATE_DATA",
-      "Berhasil Memperbarui Data",
-      `Warna untuk properti '${property_key}' pada tabel '${tableName}' berhasil diperbarui.`
-    );
-    return res.status(200).json(response.toResponse());
   } catch (error) {
     logger.error(
       `| Layers | - Error function updateLayerColor: ${error.message}`
@@ -1708,96 +1709,103 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
       return res.status(200).json(response.toResponse());
     }
 
-    const workspaceId = layer.workspace_id;
-    const auth = await ensureWorkspaceOwner(req, workspaceId, trx);
-    if (!auth.ok) {
-      await trx.rollback();
-      const response = new WithoutDataResource(
-        auth.http,
-        auth.code,
-        auth.title,
-        auth.desc
-      );
-      return res.status(auth.http).json(response.toResponse());
-    }
+    const trx = await knex.transaction();
+    try {
+      const auth = await ensureWorkspaceOwner(req, layer.workspace_id, trx);
+      if (!auth.ok) {
+        await trx.rollback();
+        const response = new WithoutDataResource(
+          auth.http,
+          auth.code,
+          auth.title,
+          auth.desc
+        );
+        return res.status(auth.http).json(response.toResponse());
+      }
 
-    const tableNameRaw = layer.table_name;
-    let schema = "public";
-    let tableName = tableNameRaw;
+      const tableNameRaw = layer.table_name;
+      let schema = "public";
+      let tableName = tableNameRaw;
 
-    if (tableNameRaw.includes(".")) {
-      const [sch, tbl] = tableNameRaw.split(".", 2);
-      schema = sch || "public";
-      tableName = tbl;
-    }
+      if (tableNameRaw.includes(".")) {
+        const [sch, tbl] = tableNameRaw.split(".", 2);
+        schema = sch || "public";
+        tableName = tbl;
+      }
 
-    // 3. Cek apakah tabel ada
-    const existsQuery = await knex.raw(
-      `
+      // 3. Cek apakah tabel ada
+      const existsQuery = await knex.raw(
+        `
       SELECT EXISTS (
         SELECT 1
         FROM information_schema.tables
         WHERE table_schema = ? AND table_name = ?
       ) AS exists;
       `,
-      [schema, tableName]
-    );
-    const tableExists = existsQuery.rows?.[0]?.exists === true;
-    if (!tableExists) {
-      const response = new WithoutDataResource(
-        404,
-        "TABLE_NOT_FOUND",
-        "Tabel Tidak Ditemukan",
-        `Tabel '${tableNameRaw}' tidak ditemukan pada schema '${schema}'.`
+        [schema, tableName]
       );
-      return res.status(404).json(response.toResponse());
-    }
+      const tableExists = existsQuery.rows?.[0]?.exists === true;
+      if (!tableExists) {
+        const response = new WithoutDataResource(
+          404,
+          "TABLE_NOT_FOUND",
+          "Tabel Tidak Ditemukan",
+          `Tabel '${tableNameRaw}' tidak ditemukan pada schema '${schema}'.`
+        );
+        return res.status(404).json(response.toResponse());
+      }
 
-    // 4. Cek kolom color & kolom property_key
-    const columnsQuery = await knex.raw(
-      `
+      // 4. Cek kolom color & kolom property_key
+      const columnsQuery = await knex.raw(
+        `
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = ? AND table_name = ?
       `,
-      [schema, tableName]
-    );
-    const allCols = (columnsQuery.rows || []).map((r) => r.column_name);
-    if (!allCols.includes("color")) {
-      const response = new WithoutDataResource(
-        400,
-        "COLOR_COLUMN_NOT_AVAILABLE",
-        "Kolom color tidak tersedia",
-        "Kolom color tidak tersedia, lakukan upload ulang SHP atau buat baru."
+        [schema, tableName]
       );
-      return res.status(400).json(response.toResponse());
-    }
-    if (!allCols.includes(keyRaw)) {
-      const response = new WithoutDataResource(
-        400,
-        "COLUMN_NOT_FOUND",
-        "Kolom Tidak Ditemukan",
-        `Kolom '${keyRaw}' tidak ditemukan di tabel '${tableNameRaw}'.`
-      );
-      return res.status(400).json(response.toResponse());
-    }
-
-    await knex.transaction(async (trx) => {
-      for (const { property_value, color } of pairs) {
-        await trx(tableName)
-          .withSchema(schema)
-          .where(keyRaw, property_value)
-          .update({ color });
+      const allCols = (columnsQuery.rows || []).map((r) => r.column_name);
+      if (!allCols.includes("color")) {
+        const response = new WithoutDataResource(
+          400,
+          "COLOR_COLUMN_NOT_AVAILABLE",
+          "Kolom color tidak tersedia",
+          "Kolom color tidak tersedia, lakukan upload ulang SHP atau buat baru."
+        );
+        return res.status(400).json(response.toResponse());
       }
-    });
+      if (!allCols.includes(keyRaw)) {
+        const response = new WithoutDataResource(
+          400,
+          "COLUMN_NOT_FOUND",
+          "Kolom Tidak Ditemukan",
+          `Kolom '${keyRaw}' tidak ditemukan di tabel '${tableNameRaw}'.`
+        );
+        return res.status(400).json(response.toResponse());
+      }
 
-    const response = new WithoutDataResource(
-      200,
-      "SUCCESS_UPDATE_DATA",
-      "Berhasil Memperbarui Data",
-      `Warna untuk properti '${property_key}' pada tabel '${tableName}' berhasil diperbarui.`
-    );
-    return res.status(200).json(response.toResponse());
+      await knex.transaction(async (trx) => {
+        for (const { property_value, color } of pairs) {
+          await trx(tableName)
+            .withSchema(schema)
+            .where(keyRaw, property_value)
+            .update({ color });
+        }
+      });
+
+      const response = new WithoutDataResource(
+        200,
+        "SUCCESS_UPDATE_DATA",
+        "Berhasil Memperbarui Data",
+        `Warna untuk properti '${property_key}' pada tabel '${tableName}' berhasil diperbarui.`
+      );
+      return res.status(200).json(response.toResponse());
+    } catch (error) {
+      try {
+        await trx.rollback();
+      } catch (_) {}
+      throw error;
+    }
   } catch (error) {
     logger.error(
       `| Layers | - Error function updateLayerColorbyPropertyKey: ${error.message}`
