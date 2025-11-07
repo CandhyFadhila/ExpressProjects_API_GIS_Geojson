@@ -41,7 +41,6 @@ exports.store = async (req, res) => {
     .trim()
     .toLowerCase();
 
-  const userId = req.userId;
   try {
     const auth = await ensureWorkspaceOwner(req, workspace_id, trx);
     if (!auth.ok) {
@@ -260,15 +259,6 @@ exports.store = async (req, res) => {
         layerType
       );
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
-
-    // 6. Update workspaces.created_by
-    await trx("workspaces")
-      .where({ id: workspace_id })
-      .whereNull("created_by")
-      .update({
-        created_by: userId,
-        updated_at: knex.fn.now(),
-      });
 
     await trx.commit();
 
@@ -2224,7 +2214,7 @@ async function ensureWorkspaceOwner(req, workspaceId, trxOrKnex = knex) {
       http: 403,
       code: "NO_ACCESS",
       title: "Akses Ditolak",
-      desc: "Hanya pembuat workspace atau super admin yang dapat mengubah/menghapus layer ini.",
+      desc: "Hanya pembuat workspace yang dapat mengelola layer saat ini.",
     };
   } catch (err) {
     logger.error(`| Auth | - Error ensureWorkspaceOwner: ${err.message}`);

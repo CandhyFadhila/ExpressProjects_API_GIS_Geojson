@@ -87,6 +87,7 @@ exports.index = async (req, res) => {
 exports.store = async (req, res) => {
   const trx = await knex.transaction();
   const { workspace_category_id, title, description } = req.body;
+  const userId = req.userId;
 
   try {
     // 1. Validasi dengan express-validator
@@ -170,6 +171,7 @@ exports.store = async (req, res) => {
     // 5. Simpan workspace
     const [newWorkspace] = await trx("workspaces")
       .insert({
+        created_by: userId,
         category_id: workspace_category_id,
         document_id,
         title,
@@ -255,6 +257,18 @@ exports.update = async (req, res) => {
   const id = req.params.id;
 
   try {
+    const auth = await ensureWorkspaceOwner(req, id, trx);
+    if (!auth.ok) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        auth.http,
+        auth.code,
+        auth.title,
+        auth.desc
+      );
+      return res.status(auth.http).json(response.toResponse());
+    }
+
     // 1. Validasi
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -394,6 +408,18 @@ exports.destroy = async (req, res) => {
   };
 
   try {
+    const auth = await ensureWorkspaceOwner(req, id, trx);
+    if (!auth.ok) {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        auth.http,
+        auth.code,
+        auth.title,
+        auth.desc
+      );
+      return res.status(auth.http).json(response.toResponse());
+    }
+
     // 1. Cari data workspace
     const workspace = await trx("workspaces").where("id", id).first();
     if (!workspace) {
@@ -505,3 +531,57 @@ exports.destroy = async (req, res) => {
     return res.status(500).json(response.toResponse());
   }
 };
+
+async function ensureWorkspaceOwner(req, workspaceId, trxOrKnex = knex) {
+  const userId = req.userId;
+  if (!userId) {
+    return {
+      ok: false,
+      http: 401,
+      code: "UNAUTHORIZED",
+      title: "Tidak Terautentikasi",
+      desc: "Silakan login terlebih dahulu.",
+    };
+  }
+
+  try {
+    const workspace = await trxOrKnex("workspaces")
+      .select("id", "created_by")
+      .where({ id: workspaceId })
+      .first();
+
+    if (!workspace) {
+      return {
+        ok: false,
+        http: 200,
+        code: "DATA_NOT_FOUND",
+        title: "Data Tidak Ditemukan",
+        desc: `Workspace dengan ID '${workspaceId}' tidak ditemukan.`,
+      };
+    }
+
+    if (
+      workspace.created_by != null &&
+      Number(workspace.created_by) === Number(userId)
+    ) {
+      return { ok: true, who: "owner", workspace };
+    }
+
+    return {
+      ok: false,
+      http: 403,
+      code: "NO_ACCESS",
+      title: "Akses Ditolak",
+      desc: "Hanya pembuat workspace yang dapat mengelola layer saat ini.",
+    };
+  } catch (err) {
+    logger.error(`| Auth | - Error ensureWorkspaceOwner: ${err.message}`);
+    return {
+      ok: false,
+      http: 500,
+      code: "SERVER_ERROR",
+      title: "Server Sedang Error",
+      desc: "Terjadi kesalahan pada sistem saat memeriksa akses.",
+    };
+  }
+}
