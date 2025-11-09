@@ -12,6 +12,7 @@ const {
 } = require("../../helpers/documentHelper");
 const WithDataResource = require("../../resources/WithDataResource");
 const WithoutDataResource = require("../../resources/WithoutDataResource");
+const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
 const workspaceResource = require("../../resources/Workspaces/workspaceResource");
 
 exports.index = async (req, res) => {

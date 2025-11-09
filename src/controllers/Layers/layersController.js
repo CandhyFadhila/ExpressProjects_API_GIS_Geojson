@@ -22,7 +22,7 @@ const {
 } = require("../../helpers/resolveArrayRelations");
 const serializeLayer = require("../../resources/Layers/serializeLayer");
 const { mapValuesToColor } = require("../../helpers/colorHelper");
-// const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
+const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
 const { trimZeroDecimalsDeep } = require("../../helpers/numberTrim");
 
 exports.store = async (req, res) => {
