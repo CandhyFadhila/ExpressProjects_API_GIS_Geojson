@@ -2182,10 +2182,10 @@ async function ensureWorkspaceOwner(req, workspaceId, trxOrKnex = knex) {
   }
 
   try {
-    // const isSuperAdmin = await isSuperAdminFromRequest(req);
-    // if (isSuperAdmin) {
-    //   return { ok: true, who: "super_admin" };
-    // }
+    const isSuperAdmin = await isSuperAdminFromRequest(req);
+    if (isSuperAdmin) {
+      return { ok: true, who: "super_admin" };
+    }
 
     const workspace = await trxOrKnex("workspaces")
       .select("id", "created_by")
