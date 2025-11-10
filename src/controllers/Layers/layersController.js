@@ -32,6 +32,7 @@ exports.store = async (req, res) => {
     parent_layer_id,
     name,
     description,
+    is_boundary,
     table_name,
     file_type,
     layer_type,
@@ -40,6 +41,14 @@ exports.store = async (req, res) => {
   const layerType = String(layer_type ?? "")
     .trim()
     .toLowerCase();
+  const isBoundary =
+    typeof is_boundary === "boolean"
+      ? is_boundary
+      : ["true", "1", "yes", "y", "on"].includes(
+          String(is_boundary ?? "")
+            .trim()
+            .toLowerCase()
+        );
 
   try {
     const auth = await ensureWorkspaceOwner(req, workspace_id, trx);
@@ -98,6 +107,18 @@ exports.store = async (req, res) => {
         "DUPLICATE_LAYER_NAME",
         "Nama Tabel Sudah Ada di Database",
         "Nama tabel sudah ada di database. Silakan gunakan nama lain."
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    // 1.2 Validasi manual untuk is_boundary
+    if (isBoundary && layerType !== "symbol") {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "LAYER_TYPE_MUST_BE_SYMBOL",
+        "Tipe Layer Tidak Valid untuk Boundary",
+        "Ketika patok bernilai true, tipe layer harus 'symbol'."
       );
       return res.status(400).json(response.toResponse());
     }
@@ -163,6 +184,7 @@ exports.store = async (req, res) => {
         document_id,
         name,
         description,
+        is_boundary: isBoundary,
         table_name,
         layer_type: layerType,
         with_explanation,
@@ -293,6 +315,7 @@ exports.update = async (req, res) => {
     parent_layer_id,
     name,
     description,
+    is_boundary,
     table_name,
     file_type,
     layer_type,
@@ -330,6 +353,37 @@ exports.update = async (req, res) => {
         `Data layer dengan ID '${id}' tidak ditemukan.`
       );
       return res.status(200).json(response.toResponse());
+    }
+
+    const hasLt = typeof layer_type !== "undefined";
+    const hasBoundary = typeof is_boundary !== "undefined";
+
+    const layerTypeEffective = hasLt
+      ? layerType
+      : String(existing.layer_type ?? "")
+          .trim()
+          .toLowerCase();
+
+    const isBoundaryEffective = hasBoundary
+      ? typeof is_boundary === "boolean"
+        ? is_boundary
+        : ["true", "1", "yes", "y", "on"].includes(
+            String(is_boundary ?? "")
+              .trim()
+              .toLowerCase()
+          )
+      : Boolean(existing.is_boundary);
+
+    // 🔒 2.1) Cross-field validation: boundary → wajib symbol
+    if (isBoundaryEffective === true && layerTypeEffective !== "symbol") {
+      await trx.rollback();
+      const response = new WithoutDataResource(
+        400,
+        "LAYER_TYPE_MUST_BE_SYMBOL",
+        "Tipe Layer Tidak Valid untuk Boundary",
+        "Ketika patok bernilai true, tipe layer harus 'symbol'."
+      );
+      return res.status(400).json(response.toResponse());
     }
 
     // 3. Validasi duplikat hanya jika properties table_name berubah
@@ -538,8 +592,9 @@ exports.update = async (req, res) => {
         document_id,
         name,
         description,
+        is_boundary: isBoundaryEffective,
         table_name,
-        layer_type,
+        layer_type: layerTypeEffective,
         with_explanation,
         updated_at: trx.fn.now(),
       });
@@ -2059,6 +2114,7 @@ async function layersSingleFeatureWithoutGeojsonResource(
       : null,
     name: layer.name,
     description: layer.description,
+    is_boundary: layer.is_boundary,
     table_name: layer.table_name,
     layer_type: layer.layer_type,
     with_explanation: layer.with_explanation,

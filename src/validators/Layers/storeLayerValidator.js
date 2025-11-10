@@ -75,6 +75,15 @@ exports.storeLayerValidator = [
     .isBoolean()
     .withMessage("With explanation harus bernilai boolean (true atau false)."),
 
+  body("is_boundary")
+    .optional()
+    .bail()
+    .customSanitizer((value) => {
+      return String(value).toLowerCase() === "true";
+    })
+    .isBoolean()
+    .withMessage("Patok harus bernilai boolean (true atau false)."),
+
   body("table_name")
     .notEmpty()
     .withMessage("Nama tabel tidak boleh kosong.")
