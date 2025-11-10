@@ -876,6 +876,7 @@ exports.getLayerPropertiesbyLayerId = async (req, res) => {
       "layer_id",
       "document_sk_ids",
       "other_document_ids",
+      "image_ids",
       "color",
     ]);
     const properties = (columnsQuery.rows || [])
@@ -996,6 +997,7 @@ exports.getLayerPropertiesValuebyLayerId = async (req, res) => {
       "layer_id",
       "document_sk_ids",
       "other_document_ids",
+      "image_ids",
     ]);
     const allCols = (columnsQuery.rows || []).map((r) => r.column_name);
     const properties = allCols.filter(
