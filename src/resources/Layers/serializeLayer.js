@@ -15,6 +15,7 @@ async function serializeLayer(layer, depth = 0) {
       : null,
     name: layer.name,
     description: layer.description,
+    is_boundary: layer.is_boundary,
     table_name: layer.table_name,
     layer_type: layer.layer_type,
     with_explanation: layer.with_explanation,
