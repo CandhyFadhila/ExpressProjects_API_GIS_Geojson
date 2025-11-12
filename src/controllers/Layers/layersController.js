@@ -1904,15 +1904,18 @@ async function layersResource(layer, depth = 0) {
 
         const SkDocs = feature.properties.document_sk_ids || [];
         const OtherDocs = feature.properties.other_document_ids || [];
+        const ImageDocs = feature.properties.image_ids || [];
         const sk_document = await resolveArrayRelations(SkDocs, "documents");
         const other_document = await resolveArrayRelations(
           OtherDocs,
           "documents"
         );
+        const image = await resolveArrayRelations(ImageDocs, "documents");
 
         // Masukkan dokumen ke dalam features tapi diluar properties
         feature.sk_document = sk_document;
         feature.other_document = other_document;
+        feature.images = image;
       }
 
       data = {
@@ -2081,7 +2084,7 @@ async function layersSingleFeatureWithoutGeojsonResource(
         // Masukkan dokumen ke dalam features tapi diluar properties
         feature.sk_document = sk_document;
         feature.other_document = other_document;
-        feature.image = image;
+        feature.images = image;
 
         delete feature.geometry;
       }
