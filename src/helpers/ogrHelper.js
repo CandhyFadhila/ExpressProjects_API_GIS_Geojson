@@ -11,14 +11,12 @@ function getOgrConfigByEnv(
     GDAL_DATA: "C:\\Program Files\\QGIS 3.44.0\\apps\\gdal\\share\\gdal",
     PATH: `C:\\Program Files\\QGIS 3.44.0\\bin;${process.env.PATH}`,
   };
-  const lt = String(layerType ?? "")
-    .trim()
-    .toLowerCase();
-  const nlt = lt === "symbol" ? "POINT" : "MULTIPOLYGON";
+  const nltFlag = `-nlt GEOMETRY`;
 
   const commonFlags =
     `-nln "${schemaName}"."${tableName}" ` +
-    `-nlt ${nlt} -lco GEOMETRY_NAME=geom -lco FID=id -lco LAUNDER=NO ` +
+    `${nltFlag} ` +
+    `-lco GEOMETRY_NAME=geom -lco FID=id -lco LAUNDER=NO ` +
     `-overwrite -t_srs EPSG:4326 ` +
     `-fieldTypeToString Date,DateTime,Time`;
 

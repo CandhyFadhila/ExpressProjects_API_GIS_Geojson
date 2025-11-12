@@ -278,7 +278,7 @@ exports.store = async (req, res) => {
         table_name,
         newLayer.id,
         with_explanation,
-        layerType
+        layer_type
       );
     } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
 
@@ -553,7 +553,7 @@ exports.update = async (req, res) => {
           table_name,
           id,
           with_explanation,
-          layerType
+          layer_type
         );
       } // Catatan, jika tipe file 'geojson', buat fungsi baru lagi
     }
