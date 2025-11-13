@@ -16,9 +16,10 @@ function getOgrConfigByEnv(
   const commonFlags =
     `-nln "${schemaName}"."${tableName}" ` +
     `${nltFlag} ` +
-    `-lco GEOMETRY_NAME=geom -lco FID=id -lco LAUNDER=NO ` +
+    `-lco GEOMETRY_NAME=geom -lco LAUNDER=NO ` +
     `-overwrite -t_srs EPSG:4326 ` +
-    `-fieldTypeToString Date,DateTime,Time`;
+    `-fieldTypeToString Date,DateTime,Time ` +
+    `-unsetFid`;
 
   if (env === "linux") {
     const ogrPath = "ogr2ogr";
