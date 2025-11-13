@@ -60,9 +60,7 @@ exports.login = async (req, res) => {
       return res.status(400).json(response.toResponse());
     }
 
-    const role = await knex("roles")
-      .where({ id: user.role_id })
-      .first();
+    const role = await knex("roles").where({ id: user.role_id }).first();
 
     // Update last_login
     await knex("users")
@@ -115,8 +113,6 @@ exports.getUserInfo = async (req, res) => {
   try {
     // Ambil data user dari database berdasarkan userId
     const user = await knex("users").where({ id: userId }).first();
-
-    // Jika user tidak ditemukan
     if (!user) {
       const response = new WithoutDataResource(
         401, // HTTP Status Code: Unauthorized
@@ -128,6 +124,8 @@ exports.getUserInfo = async (req, res) => {
       return res.status(401).json(response.toResponse());
     }
 
+    const role = await knex("roles").where({ id: user.role_id }).first();
+
     // Sembunyikan atribut sensitif, seperti password
     const filteredUser = {
       id: user.id,
@@ -135,6 +133,7 @@ exports.getUserInfo = async (req, res) => {
       email: user.email,
       username: user.username,
       last_login: user.last_login,
+      role: role,
     };
 
     // Log info sukses
