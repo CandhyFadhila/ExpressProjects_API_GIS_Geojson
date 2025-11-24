@@ -1724,17 +1724,24 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
     for (const item of property_values) {
       const pv = item?.property_value;
       const col = String(item?.color ?? "").trim();
-      const opacity = item?.opacity;
+      let opacity = String(item?.opacity ?? "").trim();
       if (pv === undefined || pv === null) continue;
       if (col.length === 0) continue; // abaikan jika color kosong
-      if (opacity === undefined || opacity === null) continue;
-      pairsMap.set(pv, col, opacity);
+      // Jika opacity kosong atau tidak ada, biarkan kosong dan jangan update
+      if (opacity === undefined || opacity === null || opacity === "") {
+        opacity = null;
+      }
+
+      pairsMap.set(pv, { color: col, opacity });
     }
-    const pairs = Array.from(pairsMap, ([property_value, color, opacity]) => ({
-      property_value,
-      color,
-      opacity,
-    }));
+    const pairs = Array.from(
+      pairsMap,
+      ([property_value, { color, opacity }]) => ({
+        property_value,
+        color,
+        opacity,
+      })
+    );
     if (pairs.length === 0) {
       const response = new WithoutDataResource(
         400,
@@ -1847,10 +1854,15 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
 
       await knex.transaction(async (trx) => {
         for (const { property_value, color, opacity } of pairs) {
+          // Hanya update opacity jika ada dan tidak kosong
+          const updateData = { color };
+          if (opacity !== null) {
+            updateData.opacity = opacity;
+          }
           await trx(tableName)
             .withSchema(schema)
             .where(keyRaw, property_value)
-            .update({ color, opacity });
+            .update(updateData);
         }
       });
 
