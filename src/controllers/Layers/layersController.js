@@ -961,13 +961,11 @@ exports.getLayerPropertiesValuebyLayerId = async (req, res) => {
 
     // 4. Cek apakah tabel ada
     const existsQuery = await knex.raw(
-      `
-      SELECT EXISTS (
+      `SELECT EXISTS (
         SELECT 1
         FROM information_schema.tables
         WHERE table_schema = ? AND table_name = ?
-      ) AS exists;
-      `,
+      ) AS exists;`,
       [schema, tableName]
     );
 
@@ -1045,7 +1043,7 @@ exports.getLayerPropertiesValuebyLayerId = async (req, res) => {
       .withSchema(schema)
       .from(tableName)
       .select(
-        knex.raw('DISTINCT ON (??) ?? AS "value", "color", "opacity', [
+        knex.raw('DISTINCT ON (??) ?? AS "value", "color", "opacity"', [
           keyMatched,
           keyMatched,
         ])
