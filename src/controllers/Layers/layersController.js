@@ -24,7 +24,6 @@ const serializeLayer = require("../../resources/Layers/serializeLayer");
 const { mapValuesToColor } = require("../../helpers/colorHelper");
 const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
 const { trimZeroDecimalsDeep } = require("../../helpers/numberTrim");
-const { isDecimal } = require("validator");
 
 exports.store = async (req, res) => {
   const trx = await knex.transaction();
@@ -695,7 +694,7 @@ exports.getLayersbyWorkspaceId = async (req, res) => {
     const layers = await knex("layers")
       .where("workspace_id", workspace_id)
       .whereNull("deleted_at")
-      .orderBy("created_at", "asc");
+      .orderBy("created_at", "desc");
 
     // Jika tidak ada layer sama sekali
     if (!layers || layers.length === 0) {
