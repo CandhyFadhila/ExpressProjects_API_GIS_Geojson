@@ -24,6 +24,7 @@ const serializeLayer = require("../../resources/Layers/serializeLayer");
 const { mapValuesToColor } = require("../../helpers/colorHelper");
 const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
 const { trimZeroDecimalsDeep } = require("../../helpers/numberTrim");
+const { isDecimal } = require("validator");
 
 exports.store = async (req, res) => {
   const trx = await knex.transaction();
@@ -878,6 +879,7 @@ exports.getLayerPropertiesbyLayerId = async (req, res) => {
       "other_document_ids",
       "image_ids",
       "color",
+      "opacity",
     ]);
     const properties = (columnsQuery.rows || [])
       .map((r) => r.column_name)
@@ -1722,20 +1724,23 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
     for (const item of property_values) {
       const pv = item?.property_value;
       const col = String(item?.color ?? "").trim();
+      const opacity = item?.opacity;
       if (pv === undefined || pv === null) continue;
       if (col.length === 0) continue; // abaikan jika color kosong
-      pairsMap.set(pv, col);
+      if (opacity === undefined || opacity === null) continue;
+      pairsMap.set(pv, col, opacity);
     }
-    const pairs = Array.from(pairsMap, ([property_value, color]) => ({
+    const pairs = Array.from(pairsMap, ([property_value, color, opacity]) => ({
       property_value,
       color,
+      opacity,
     }));
     if (pairs.length === 0) {
       const response = new WithoutDataResource(
         400,
         "FAILED_VALIDATION",
         "Format Data Tidak Sesuai Ketentuan",
-        "Semua item property_values tidak valid (property_value/color kosong)."
+        "Semua item property_values tidak valid (property_value/color/opacity kosong)."
       );
       return res.status(400).json(response.toResponse());
     }
@@ -1821,6 +1826,15 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
         );
         return res.status(400).json(response.toResponse());
       }
+      if (!allCols.includes("opacity")) {
+        const response = new WithoutDataResource(
+          400,
+          "OPACITY_COLUMN_NOT_AVAILABLE",
+          "Kolom opacity tidak tersedia",
+          "Kolom opacity tidak tersedia, lakukan upload ulang SHP atau buat baru."
+        );
+        return res.status(400).json(response.toResponse());
+      }
       if (!allCols.includes(keyRaw)) {
         const response = new WithoutDataResource(
           400,
@@ -1832,11 +1846,11 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
       }
 
       await knex.transaction(async (trx) => {
-        for (const { property_value, color } of pairs) {
+        for (const { property_value, color, opacity } of pairs) {
           await trx(tableName)
             .withSchema(schema)
             .where(keyRaw, property_value)
-            .update({ color });
+            .update({ color, opacity });
         }
       });
 

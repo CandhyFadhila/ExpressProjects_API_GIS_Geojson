@@ -141,8 +141,13 @@ async function alterTableForMeta(schemaName, tableName) {
       ADD COLUMN IF NOT EXISTS color VARCHAR(9);
     `);
 
+    await client.query(`
+      ALTER TABLE "${schemaName}"."${tableName}"
+      ADD COLUMN IF NOT EXISTS opacity VARCHAR DEFAULT '0.8';
+    `);
+
     logger.info(
-      `| alterTableForMeta | Kolom layer_id, document_sk_ids, other_document_ids, image_ids dan color berhasil ditambahkan pada ${schemaName}.${tableName}`
+      `| alterTableForMeta | Kolom layer_id, document_sk_ids, other_document_ids, image_ids, color, dan opacity berhasil ditambahkan pada ${schemaName}.${tableName}`
     );
   } catch (err) {
     throw new Error(
