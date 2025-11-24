@@ -1023,9 +1023,20 @@ exports.getLayerPropertiesValuebyLayerId = async (req, res) => {
     if (!hasColor) {
       const response = new WithoutDataResource(
         400,
-        "FAILED_VALIDATION",
+        "COLOR_COLUMN_NOT_AVAILABLE",
         "Format Data Tidak Sesuai Ketentuan",
         `Kolom 'color' tidak ditemukan pada tabel '${tableNameRaw}'.`
+      );
+      return res.status(400).json(response.toResponse());
+    }
+
+    const hasOpacity = allCols.some((c) => c.toLowerCase() === "opacity");
+    if (!hasOpacity) {
+      const response = new WithoutDataResource(
+        400,
+        "OPACITY_COLUMN_NOT_AVAILABLE",
+        "Format Data Tidak Sesuai Ketentuan",
+        `Kolom 'opacity' tidak ditemukan pada tabel '${tableNameRaw}'.`
       );
       return res.status(400).json(response.toResponse());
     }
@@ -1034,7 +1045,7 @@ exports.getLayerPropertiesValuebyLayerId = async (req, res) => {
       .withSchema(schema)
       .from(tableName)
       .select(
-        knex.raw('DISTINCT ON (??) ?? AS "value", "color"', [
+        knex.raw('DISTINCT ON (??) ?? AS "value", "color", "opacity', [
           keyMatched,
           keyMatched,
         ])
@@ -1043,7 +1054,11 @@ exports.getLayerPropertiesValuebyLayerId = async (req, res) => {
       .andWhereRaw("btrim(CAST(?? AS TEXT)) <> ''", [keyMatched])
       .orderByRaw('?? ASC, (color IS NULL), "color" ASC', [keyMatched]);
 
-    const values = rows.map((r) => ({ value: r.value, color: r.color }));
+    const values = rows.map((r) => ({
+      value: r.value,
+      color: r.color,
+      opacity: r.opacity,
+    }));
 
     const result = {
       table_name: tableNameRaw,
