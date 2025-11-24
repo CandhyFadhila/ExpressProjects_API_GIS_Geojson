@@ -16,7 +16,7 @@ async function workspaceResource(workspace) {
   const layers = await knex("layers")
     .where("workspace_id", workspace.id)
     .whereNull("deleted_at")
-    .orderBy("id", "asc");
+    .orderBy("created_at", "desc");
 
   const serializedLayers = await Promise.all(
     layers.map((layer) => serializeLayer(layer))

@@ -693,8 +693,7 @@ exports.getLayersbyWorkspaceId = async (req, res) => {
     // 1. Ambil semua layer aktif berdasarkan workspace_id
     const layers = await knex("layers")
       .where("workspace_id", workspace_id)
-      .whereNull("deleted_at")
-      .orderBy("created_at", "desc");
+      .whereNull("deleted_at");
 
     // Jika tidak ada layer sama sekali
     if (!layers || layers.length === 0) {
