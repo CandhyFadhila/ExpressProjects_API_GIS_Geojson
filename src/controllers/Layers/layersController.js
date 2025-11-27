@@ -1093,7 +1093,6 @@ exports.updateLayerFeatures = async (req, res) => {
     delete_other_document_ids,
     delete_image_ids,
   } = req.body;
-  const trx = await knex.transaction();
   const allowedUpdateColumns = [
     "PARAPIHAKB",
     "PERMASALAH",
@@ -1185,8 +1184,10 @@ exports.updateLayerFeatures = async (req, res) => {
   const uniq = (arr) => [...new Set(arr)];
 
   try {
+    const trx = await knex.transaction();
+
     // 0. Validasi table_name ada di database
-    const tableCheck = await knex.raw(`SELECT to_regclass(?) AS exists`, [
+    const tableCheck = await trx.raw(`SELECT to_regclass(?) AS exists`, [
       table_name,
     ]);
     if (!tableCheck.rows[0]?.exists) {
