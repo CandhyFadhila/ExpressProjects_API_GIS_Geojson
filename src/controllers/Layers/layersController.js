@@ -1877,6 +1877,10 @@ exports.updateLayerColorbyPropertyKey = async (req, res) => {
             .where(keyRaw, property_value)
             .update(updateData);
         }
+
+        await trx("layers")
+          .where("id", id)
+          .update({ color_property_key: keyRaw });
       });
 
       const response = new WithoutDataResource(
