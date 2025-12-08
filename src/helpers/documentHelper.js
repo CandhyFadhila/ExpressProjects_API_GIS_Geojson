@@ -1,29 +1,44 @@
 const fs = require("fs");
-const { v4: uuidv4 } = require("uuid");
 const path = require("path");
-const crypto = require("crypto");
 const knex = require("../config/database");
 const logger = require("../utils/logger");
 
-function generateRandomString(length = 25) {
-  return crypto
-    .randomBytes(length)
-    .toString("base64")
-    .replace(/\W/g, "")
-    .substring(0, length);
-}
-
 function formatFileSize(bytes) {
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  if (bytes === 0) return "0 B";
+  const sizes = ["b", "kB", "mB", "gB", "tB"];
+  if (bytes === 0) return "0 b";
   const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
   return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
+}
+
+// Sanitasi nama file supaya aman dipakai di filesystem (terutama Windows)
+function sanitizeBaseName(name) {
+  if (!name) return "file";
+  let cleaned = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, "");
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "file";
+  return cleaned;
+}
+
+// Membuat nama file unik: "nama.ext", "nama (1).ext", "nama (2).ext", dst.
+function getUniqueFileName(destinationDir, originalName) {
+  const extension = path.extname(originalName || "");
+  const rawBaseName = path.basename(originalName || "file", extension);
+  const baseName = sanitizeBaseName(rawBaseName);
+
+  let candidate = `${baseName}${extension}`;
+  let counter = 1;
+
+  while (fs.existsSync(path.join(destinationDir, candidate))) {
+    candidate = `${baseName} (${counter})${extension}`;
+    counter++;
+  }
+
+  return candidate;
 }
 
 async function uploadDocuments(files) {
   const uploadedResults = [];
 
-  // Buat direktori target sekali di awal
   const destinationDir = path.join(
     __dirname,
     "..",
@@ -42,24 +57,26 @@ async function uploadDocuments(files) {
     throw new Error("Gagal menyiapkan direktori penyimpanan dokumen.");
   }
 
-  // Proses masing-masing file
   for (const file of files) {
     try {
-      const extension = path.extname(file.originalname);
-      const randomName = generateRandomString() + extension;
-      const destinationPath = path.join(destinationDir, randomName);
+      const finalFileName = getUniqueFileName(
+        destinationDir,
+        file.originalname
+      );
+
+      const destinationPath = path.join(destinationDir, finalFileName);
 
       fs.renameSync(file.path, destinationPath); // move file
 
-      const relativePath = `storage/documents/${randomName}`;
+      const relativePath = `storage/documents/${finalFileName}`;
       const fileUrl = `${process.env.APP_URL}/${relativePath}`;
       const mimeType = file.mimetype;
-      const fileSizeRaw = file.size; // in bytes (integer)
+      const fileSizeRaw = file.size;
       const fileSizeFormatted = formatFileSize(fileSizeRaw);
 
       const result = await knex("documents")
         .insert({
-          file_name: randomName,
+          file_name: finalFileName,
           file_path: relativePath,
           file_url: fileUrl,
           file_mime_type: mimeType,
@@ -71,7 +88,7 @@ async function uploadDocuments(files) {
 
       uploadedResults.push({
         id: inserted.id,
-        filename: randomName,
+        file_name: finalFileName,
         file_path: relativePath,
         file_url: fileUrl,
         file_mime_type: mimeType,
@@ -81,7 +98,9 @@ async function uploadDocuments(files) {
         deleted_at: inserted.deleted_at,
       });
 
-      logger.info(`| uploadDocuments | - Success: ${randomName}`);
+      logger.info(
+        `| uploadDocuments | - File successfully uploaded: ${finalFileName} (${fileSizeFormatted})`
+      );
     } catch (err) {
       logger.error(
         `| uploadDocuments | - Failed on file ${file.originalname}: ${err.message}`
