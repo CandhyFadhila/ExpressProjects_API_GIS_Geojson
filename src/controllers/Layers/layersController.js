@@ -26,7 +26,6 @@ const { isSuperAdminFromRequest } = require("../../helpers/roleHelper");
 const { trimZeroDecimalsDeep } = require("../../helpers/numberTrim");
 
 exports.store = async (req, res) => {
-  const trx = await knex.transaction();
   const {
     workspace_id,
     parent_layer_id,
@@ -51,6 +50,7 @@ exports.store = async (req, res) => {
         );
 
   try {
+    const trx = await knex.transaction();
     const auth = await ensureWorkspaceOwner(req, workspace_id, trx);
     if (!auth.ok) {
       await trx.rollback();
@@ -76,7 +76,6 @@ exports.store = async (req, res) => {
         "Format Data Tidak Sesuai Ketentuan",
         message
       );
-      await trx.rollback();
       return res.status(400).json(response.toResponse());
     }
 
